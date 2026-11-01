@@ -22,29 +22,27 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Grant execute permission for gradlew
+      - name: Install Android SDK platform and build-tools
         run: |
-          if [ -f gradlew ]; then chmod +x gradlew; fi
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || true
+
+      - name: Verify Gradle
+        run: gradle -v
 
       - name: Unit tests
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew :app:testDebugUnitTest --stacktrace
-          else
-            echo "Gradle wrapper missing — open in Android Studio to generate"
-            exit 0
-          fi
+        run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Assemble debug APK
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew :app:assembleDebug --stacktrace
-          else
-            exit 0
-          fi
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         if: success()
