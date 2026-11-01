@@ -21,46 +21,47 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform and build-tools
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Parse tag
         id: ver
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          # simple versionCode: 0.4.0 -> 40
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           CODE=$(python3 - <<'PY'
-import os,re
-v=os.environ.get("GITHUB_REF_NAME","v0.0.0").lstrip("v")
-parts=[int(x) for x in re.findall(r"\d+", v)]
-while len(parts)<3: parts.append(0)
-print(parts[0]*100+parts[1]*10+parts[2])
-PY
-)
-          echo "code=$CODE" >> $GITHUB_OUTPUT
+          import os, re
+          v = os.environ.get("GITHUB_REF_NAME", "v0.0.0").lstrip("v")
+          parts = [int(x) for x in re.findall(r"\d+", v)]
+          while len(parts) < 3:
+              parts.append(0)
+          print(parts[0] * 100 + parts[1] * 10 + parts[2])
+          PY
+          )
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Unit tests
-        run: |
-          if [ -f gradlew ]; then chmod +x gradlew && ./gradlew :app:testDebugUnitTest --stacktrace; else echo "no wrapper"; fi
+        run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Assemble release APK
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew :app:assembleRelease --stacktrace || ./gradlew :app:assembleDebug --stacktrace
-          else
-            echo "Gradle wrapper missing"; exit 1
-          fi
+        run: gradle :app:assembleRelease --stacktrace
 
       - name: Locate APK and checksum
         id: apk
         run: |
-          APK=$(find app/build/outputs/apk -name "*.apk" | head -n1)
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
           if [ -z "$APK" ]; then echo "No APK"; exit 1; fi
           cp "$APK" "cosmic-ai-v${{ steps.ver.outputs.version }}.apk"
           SHA=$(sha256sum "cosmic-ai-v${{ steps.ver.outputs.version }}.apk" | awk '{print $1}')
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "$SHA  cosmic-ai-v${{ steps.ver.outputs.version }}.apk" > SHA256SUMS.txt
           cat > release.json <<JSON
           {
