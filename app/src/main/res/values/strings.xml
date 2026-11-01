@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">COSMIC AI</string>
+    <string name="welcome_title">COSMIC AI</string>
+    <string name="welcome_subtitle">Mobile-first autonomous coding agent</string>
+    <string name="get_started">Get Started</string>
+    <string name="nav_agent">Agent</string>
+    <string name="nav_projects">Projects</string>
+    <string name="nav_terminal">Terminal</string>
+    <string name="nav_sessions">Sessions</string>
+    <string name="nav_background">Tasks</string>
+    <string name="settings">Settings</string>
+</resources>

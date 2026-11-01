@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cosmic_navy">#0B1220</color>
+    <color name="cosmic_deep">#0F172A</color>
+    <color name="cosmic_purple">#7C3AED</color>
+    <color name="cosmic_blue">#3B82F6</color>
+    <color name="cosmic_accent">#A78BFA</color>
+    <color name="cosmic_surface">#1E293B</color>
+    <color name="cosmic_on_surface">#E2E8F0</color>
+    <color name="cosmic_error">#EF4444</color>
+</resources>

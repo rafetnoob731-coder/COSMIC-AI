@@ -1,0 +1,3 @@
+-keep class com.cosmic.ai.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
