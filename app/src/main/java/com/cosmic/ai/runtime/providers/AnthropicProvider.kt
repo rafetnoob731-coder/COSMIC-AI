@@ -2,7 +2,9 @@
 package com.cosmic.ai.runtime.providers
 
 import com.cosmic.ai.domain.provider.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -25,6 +27,32 @@ class AnthropicProvider(
 
     override val type: ProviderType = ProviderType.ANTHROPIC
 
+    override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url(config.baseUrl.trimEnd('/') + "/v1/models?limit=1000")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("data") ?: JSONArray()
+                val models = buildList {
+                    for (index in 0 until data.length()) {
+                        val item = data.optJSONObject(index) ?: continue
+                        val id = item.optString("id").trim()
+                        if (id.isNotEmpty()) add(ProviderModel(id, item.optString("display_name").ifBlank { id }))
+                    }
+                }
+                Result.success(models)
+            }
+        } catch (error: Exception) {
+            Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
+        }
+    }
+
     override suspend fun testConnection(config: ProviderConfig, apiKey: String): Result<String> {
         return try {
             val body = JSONObject().apply {
@@ -41,7 +69,7 @@ class AnthropicProvider(
                 .build()
             val resp = client.newCall(req).execute()
             if (resp.isSuccessful) Result.success("OK ${resp.code}")
-            else Result.failure(IOException("HTTP ${resp.code}: ${resp.body?.string()?.take(200)}"))
+            else Result.failure(IOException("HTTP ${resp.code}"))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -116,7 +144,7 @@ class AnthropicProvider(
                 override fun onResponse(call: Call, response: Response) {
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
-                        cont.resume(Result.failure(IOException("HTTP ${response.code}: ${body.take(300)}")))
+                        cont.resume(Result.failure(IOException("HTTP ${response.code}")))
                         return
                     }
                     try {

@@ -13,6 +13,11 @@ data class ProviderConfig(
     val extra: Map<String, String> = emptyMap()
 )
 
+data class ProviderModel(
+    val id: String,
+    val displayName: String = id
+)
+
 enum class ProviderType {
     OPENAI_COMPATIBLE,
     ANTHROPIC,
@@ -62,6 +67,8 @@ sealed class ChatEvent {
 interface AiProvider {
     val type: ProviderType
     suspend fun testConnection(config: ProviderConfig, apiKey: String): Result<String>
+    suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> =
+        Result.failure(UnsupportedOperationException("Model discovery is not supported by this provider adapter"))
     fun streamChat(config: ProviderConfig, apiKey: String, request: ChatRequest): Flow<ChatEvent>
     suspend fun completeChat(config: ProviderConfig, apiKey: String, request: ChatRequest): Result<ChatMessage>
 }

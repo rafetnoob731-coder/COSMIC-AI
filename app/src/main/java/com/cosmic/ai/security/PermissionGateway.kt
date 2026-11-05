@@ -33,6 +33,16 @@ sealed class PermissionDecision {
     data class NeedsApproval(val reason: String, val level: PermissionLevel) : PermissionDecision()
 }
 
+object SensitiveTextRedactor {
+    private val credentialPattern = Regex(
+        "(?i)(\\b\"?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\"?\\s*[:=]\\s*[\"']?)(?:Bearer\\s+)?([^\\s,;}\"']+)"
+    )
+
+    fun redact(text: String): String = credentialPattern.replace(text) { match ->
+        "${match.groupValues[1]}[REDACTED]"
+    }
+}
+
 data class AuditEntry(
     val id: String,
     val level: PermissionLevel,

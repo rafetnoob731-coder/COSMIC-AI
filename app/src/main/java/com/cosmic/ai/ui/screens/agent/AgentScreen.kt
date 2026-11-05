@@ -26,7 +26,6 @@ import com.cosmic.ai.runtime.agent.AgentUiEvent
 import com.cosmic.ai.core.commands.CommandRegistry
 import com.cosmic.ai.core.commands.CosmicCommand
 import com.cosmic.ai.ui.navigation.Routes
-import com.cosmic.ai.ui.navigation.Routes
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -162,7 +161,6 @@ fun AgentScreen(
                                 input = ""
                                 when (cmd) {
                                     is CosmicCommand.OpenBugs -> {
-                                        val route = Routes.BUGS
                                         onNavigate(Routes.BUGS)
                                     }
                                     is CosmicCommand.Help -> {

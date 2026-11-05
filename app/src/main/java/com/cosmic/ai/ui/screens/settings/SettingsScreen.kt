@@ -21,6 +21,7 @@ import com.cosmic.ai.domain.mcp.McpServerConfig
 import com.cosmic.ai.domain.mcp.McpTransport
 import com.cosmic.ai.domain.provider.ProviderConfig
 import com.cosmic.ai.domain.provider.ProviderType
+import com.cosmic.ai.domain.provider.ProviderModel
 import com.cosmic.ai.runtime.providers.ProviderFactory
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -84,6 +85,9 @@ private fun ProvidersSection(
     var apiKey by remember { mutableStateOf("") }
     var testMsg by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
+    var discovering by remember { mutableStateOf(false) }
+    var discoveredModels by remember { mutableStateOf<List<ProviderModel>>(emptyList()) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -102,7 +106,7 @@ private fun ProvidersSection(
         }
         providers.forEach { p ->
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(p.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         if (p.isDefault) {
@@ -143,6 +147,7 @@ private fun ProvidersSection(
                         baseUrl = preset.baseUrl
                         model = preset.defaultModel
                         name = preset.label
+                        discoveredModels = emptyList()
                     },
                     label = { Text(preset.label) },
                     modifier = Modifier.padding(end = 4.dp, bottom = 4.dp)
@@ -152,6 +157,44 @@ private fun ProvidersSection(
             OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Default model") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API key") }, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    enabled = !discovering && apiKey.isNotBlank() && baseUrl.isNotBlank(),
+                    onClick = {
+                        discovering = true
+                        testMsg = null
+                        scope.launch {
+                            val cfg = ProviderConfig("models", name, selectedPreset.type, baseUrl, "temporary", model)
+                            val result = ProviderFactory.get(selectedPreset.type).discoverModels(cfg, apiKey)
+                            result.fold(
+                                onSuccess = {
+                                    discoveredModels = it
+                                    testMsg = "Found ${it.size} models"
+                                    modelMenuExpanded = it.isNotEmpty()
+                                },
+                                onFailure = {
+                                    discoveredModels = emptyList()
+                                    testMsg = "Model discovery failed · ${it.message ?: "request failed"}"
+                                }
+                            )
+                            discovering = false
+                        }
+                    }
+                ) { Text(if (discovering) "Loading models…" else "Load models") }
+                Box {
+                    TextButton(enabled = discoveredModels.isNotEmpty(), onClick = { modelMenuExpanded = true }) {
+                        Text("Choose (${discoveredModels.size})")
+                    }
+                    DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                        discoveredModels.take(100).forEach { discovered ->
+                            DropdownMenuItem(
+                                text = { Text(discovered.displayName) },
+                                onClick = { model = discovered.id; modelMenuExpanded = false }
+                            )
+                        }
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     enabled = !testing && apiKey.isNotBlank(),
@@ -235,7 +278,7 @@ private fun McpSection() {
         servers.forEach { s ->
             val st = states[s.id]
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Text(s.name, style = MaterialTheme.typography.titleMedium)
                     Text("${s.transport} · ${s.command ?: s.url}", style = MaterialTheme.typography.bodySmall)
                     when (st) {

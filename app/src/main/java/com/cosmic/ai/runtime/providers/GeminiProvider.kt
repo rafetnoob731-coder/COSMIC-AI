@@ -2,7 +2,9 @@
 package com.cosmic.ai.runtime.providers
 
 import com.cosmic.ai.domain.provider.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -31,6 +33,34 @@ class GeminiProvider(
         return "$base/models/$model:$action"
     }
 
+    override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(config.baseUrl.trimEnd('/').ifBlank { "https://generativelanguage.googleapis.com/v1beta" } + "/models")
+                .header("x-goog-api-key", apiKey)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("models") ?: JSONArray()
+                val models = buildList {
+                    for (index in 0 until data.length()) {
+                        val item = data.optJSONObject(index) ?: continue
+                        val methods = item.optJSONArray("supportedGenerationMethods")
+                        if (methods != null && (0 until methods.length()).none { methods.optString(it) == "generateContent" }) continue
+                        val resourceName = item.optString("name").trim()
+                        val id = resourceName.removePrefix("models/")
+                        if (id.isNotEmpty()) add(ProviderModel(id, item.optString("displayName").ifBlank { id }))
+                    }
+                }
+                Result.success(models)
+            }
+        } catch (error: Exception) {
+            Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
+        }
+    }
+
     override suspend fun testConnection(config: ProviderConfig, apiKey: String): Result<String> {
         return try {
             val model = config.defaultModel.ifBlank { "gemini-1.5-flash" }
@@ -43,13 +73,14 @@ class GeminiProvider(
                 )
             )
             val req = Request.Builder()
-                .url(endpoint(config, model, false) + "?key=$apiKey")
+                .url(endpoint(config, model, false))
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             val resp = client.newCall(req).execute()
             if (resp.isSuccessful) Result.success("OK ${resp.code}")
-            else Result.failure(IOException("HTTP ${resp.code}: ${resp.body?.string()?.take(200)}"))
+            else Result.failure(IOException("HTTP ${resp.code}"))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -57,9 +88,10 @@ class GeminiProvider(
 
     override fun streamChat(config: ProviderConfig, apiKey: String, request: ChatRequest): Flow<ChatEvent> = callbackFlow {
         val payload = buildGeminiPayload(request)
-        val url = endpoint(config, request.model, true) + "?alt=sse&key=$apiKey"
+        val url = endpoint(config, request.model, true) + "?alt=sse"
         val httpReq = Request.Builder()
             .url(url)
+            .header("x-goog-api-key", apiKey)
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
@@ -103,9 +135,10 @@ class GeminiProvider(
     override suspend fun completeChat(config: ProviderConfig, apiKey: String, request: ChatRequest): Result<ChatMessage> =
         suspendCancellableCoroutine { cont ->
             val payload = buildGeminiPayload(request)
-            val url = endpoint(config, request.model, false) + "?key=$apiKey"
+            val url = endpoint(config, request.model, false)
             val httpReq = Request.Builder()
                 .url(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
@@ -114,7 +147,7 @@ class GeminiProvider(
                 override fun onResponse(call: Call, response: Response) {
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
-                        cont.resume(Result.failure(IOException("HTTP ${response.code}: ${body.take(300)}")))
+                        cont.resume(Result.failure(IOException("HTTP ${response.code}")))
                         return
                     }
                     try {

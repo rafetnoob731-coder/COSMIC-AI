@@ -110,3 +110,26 @@ App startup reads `GET /repos/rafetnoob731-coder/COSMIC-AI/releases/latest` (no 
 ## Bug Center
 
 In chat: `/bugs` · `/bugs new` · `/bugs my` · `/bugs help`
+
+## Product resources
+
+- Welcome copy: [`docs/WELCOME.md`](docs/WELCOME.md)
+- Setup and troubleshooting: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
+- Provider and MCP connection guide, official links, security guidance, and current implementation boundaries: [`docs/PROVIDER_AND_MCP_RESOURCES.md`](docs/PROVIDER_AND_MCP_RESOURCES.md)
+- Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+
+Provider availability changes by vendor. COSMIC currently supports native adapters for OpenAI-compatible APIs, Anthropic, and Gemini, with gateway/custom endpoint configurations. It does not yet contain a dynamic 100+ provider directory or universal MCP server support; see the resource guide for the precise status.
+
+## Build verification
+
+Requirements: JDK 17, Android SDK Platform 35, Build Tools 35.0.0, and the checked-in Gradle Wrapper (Gradle 8.9). From a fresh checkout with the SDK configured:
+
+```bash
+./gradlew --version
+./gradlew :app:compileDebugKotlin
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug
+```
+
+The authoritative workflow is [Android CI](.github/workflows/android-ci.yml). It validates the wrapper, compiles Kotlin, runs unit tests and lint, builds the debug APK, and uploads the APK and reports. Android release signing remains configured outside this debug CI workflow; no signing secrets belong in the repository.

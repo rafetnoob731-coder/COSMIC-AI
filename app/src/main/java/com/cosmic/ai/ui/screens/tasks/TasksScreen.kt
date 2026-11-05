@@ -43,7 +43,7 @@ fun TasksScreen(onBack: () -> Unit, machine: TaskStateMachine = remember { TaskS
             }
             items(tasks) { t ->
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(t.title, style = MaterialTheme.typography.titleMedium)
                         Text(t.phase.name, color = MaterialTheme.colorScheme.primary)
                         Text(t.instruction.take(120), style = MaterialTheme.typography.bodySmall)

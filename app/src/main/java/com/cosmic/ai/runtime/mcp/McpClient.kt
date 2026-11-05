@@ -34,7 +34,8 @@ class McpClientManager {
             try {
                 val session: McpSession = when (config.transport) {
                     McpTransport.STDIO -> StdioMcpSession(config)
-                    McpTransport.SSE, McpTransport.HTTP -> HttpMcpSession(config)
+                    McpTransport.HTTP -> HttpMcpSession(config)
+                    McpTransport.SSE -> error("Legacy MCP SSE transport is not implemented; use Streamable HTTP")
                 }
                 session.initialize()
                 val discovered = session.listTools()
@@ -78,18 +79,23 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
     private var reader: BufferedReader? = null
     private val idGen = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JSONObject>>()
+    private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var readerJob: Job? = null
+    private var stderrJob: Job? = null
 
     override suspend fun initialize() = withContext(Dispatchers.IO) {
         val cmd = mutableListOf(config.command ?: error("STDIO requires command"))
         cmd.addAll(config.args)
         val pb = ProcessBuilder(cmd)
         config.env.forEach { (k, v) -> pb.environment()[k] = v }
-        pb.redirectErrorStream(true)
+        pb.redirectErrorStream(false)
         process = pb.start()
         writer = BufferedWriter(OutputStreamWriter(process!!.outputStream))
         reader = BufferedReader(InputStreamReader(process!!.inputStream))
-        readerJob = GlobalScope.launch(Dispatchers.IO) {
+        stderrJob = processScope.launch {
+            process?.errorStream?.bufferedReader()?.use { stream -> while (stream.readLine() != null) Unit }
+        }
+        readerJob = processScope.launch {
             try {
                 while (true) {
                     val line = reader?.readLine() ?: break
@@ -131,7 +137,11 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
 
     override suspend fun callTool(name: String, argumentsJson: String): Result<String> {
         return try {
-            val args = try { JSONObject(argumentsJson) } catch (_: Exception) { JSONObject() }
+            val args = try {
+                JSONObject(argumentsJson)
+            } catch (_: Exception) {
+                return Result.failure(IllegalArgumentException("MCP tool arguments must be a JSON object"))
+            }
             val resp = request("tools/call", JSONObject().put("name", name).put("arguments", args))
             if (resp.has("error")) {
                 Result.failure(Exception(resp.getJSONObject("error").optString("message", "tool error")))
@@ -168,6 +178,8 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
 
     override fun close() {
         readerJob?.cancel()
+        stderrJob?.cancel()
+        processScope.cancel()
         try { writer?.close() } catch (_: Exception) {}
         try { reader?.close() } catch (_: Exception) {}
         process?.destroy()
@@ -177,11 +189,20 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
 }
 
 class HttpMcpSession(private val config: McpServerConfig) : McpSession {
+    private val endpoint = okhttp3.HttpUrl.get(config.url ?: error("HTTP transport requires url"))
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
     private val idGen = AtomicLong(1)
+
+    init {
+        require(endpoint.username.isEmpty() && endpoint.password.isEmpty()) { "MCP URL must not embed credentials" }
+        val isLoopback = endpoint.host in setOf("localhost", "127.0.0.1", "::1")
+        require(endpoint.isHttps || (endpoint.scheme == "http" && isLoopback)) {
+            "Remote MCP connections require HTTPS; cleartext is limited to localhost"
+        }
+    }
 
     override suspend fun initialize() {
         rpc(
@@ -214,7 +235,11 @@ class HttpMcpSession(private val config: McpServerConfig) : McpSession {
 
     override suspend fun callTool(name: String, argumentsJson: String): Result<String> {
         return try {
-            val args = try { JSONObject(argumentsJson) } catch (_: Exception) { JSONObject() }
+            val args = try {
+                JSONObject(argumentsJson)
+            } catch (_: Exception) {
+                return Result.failure(IllegalArgumentException("MCP tool arguments must be a JSON object"))
+            }
             val resp = rpc("tools/call", JSONObject().put("name", name).put("arguments", args))
             if (resp.has("error")) Result.failure(Exception(resp.getJSONObject("error").optString("message")))
             else Result.success(resp.optJSONObject("result")?.toString() ?: "{}")
@@ -231,16 +256,16 @@ class HttpMcpSession(private val config: McpServerConfig) : McpSession {
             .put("method", method)
             .put("params", params)
             .toString()
-        val url = config.url ?: error("HTTP transport requires url")
         val builder = Request.Builder()
-            .url(url)
+            .url(endpoint)
             .header("Content-Type", "application/json")
             .post(body.toRequestBody("application/json".toMediaType()))
         config.headers.forEach { (k, v) -> builder.header(k, v) }
-        val response = client.newCall(builder.build()).execute()
-        val text = response.body?.string().orEmpty()
-        if (!response.isSuccessful) error("HTTP ${response.code}: ${text.take(200)}")
-        JSONObject(text)
+        client.newCall(builder.build()).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error("MCP HTTP request failed: HTTP ${response.code}")
+            JSONObject(text)
+        }
     }
 
     override fun close() { }

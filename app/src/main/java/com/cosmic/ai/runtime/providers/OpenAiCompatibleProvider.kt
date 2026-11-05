@@ -2,7 +2,9 @@
 package com.cosmic.ai.runtime.providers
 
 import com.cosmic.ai.domain.provider.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -24,6 +26,31 @@ class OpenAiCompatibleProvider(
 
     override val type: ProviderType = ProviderType.OPENAI_COMPATIBLE
 
+    override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(config.baseUrl.trimEnd('/') + "/models")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("data") ?: JSONArray()
+                val models = buildList {
+                    for (index in 0 until data.length()) {
+                        val item = data.optJSONObject(index) ?: continue
+                        val id = item.optString("id").trim()
+                        if (id.isNotEmpty()) add(ProviderModel(id = id, displayName = item.optString("name").ifBlank { id }))
+                    }
+                }
+                Result.success(models)
+            }
+        } catch (error: Exception) {
+            Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
+        }
+    }
+
     override suspend fun testConnection(config: ProviderConfig, apiKey: String): Result<String> {
         return try {
             val body = JSONObject().apply {
@@ -41,7 +68,7 @@ class OpenAiCompatibleProvider(
             if (response.isSuccessful) {
                 Result.success("OK ${response.code}")
             } else {
-                Result.failure(IOException("HTTP ${response.code}: ${response.body?.string()?.take(200)}"))
+                Result.failure(IOException("HTTP ${response.code}"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -146,7 +173,7 @@ class OpenAiCompatibleProvider(
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    cont.resume(Result.failure(IOException("HTTP ${response.code}: ${body.take(300)}")))
+                    cont.resume(Result.failure(IOException("HTTP ${response.code}")))
                     return
                 }
                 try {

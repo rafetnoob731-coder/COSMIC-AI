@@ -77,7 +77,7 @@ fun UpdateScreen(
             )
             Spacer(Modifier.height(24.dp))
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Current: ${evaluation.installedVersionName} (${evaluation.installedVersionCode})")
                     if (manifest != null) {
                         Text("Latest: ${manifest.latestVersion} (${manifest.versionCode})")

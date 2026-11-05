@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.io.IOException
 
 class AgentRuntime(
     private val context: Context,
@@ -59,14 +60,37 @@ class AgentRuntime(
         currentJob?.cancel()
         currentJob = scope.launch {
             val taskId = UUID.randomUUID().toString()
+            val taskCreatedAt = System.currentTimeMillis()
             val steps = mutableListOf<AgentStep>()
+            suspend fun persistTask(status: TaskStatus, progress: String) {
+                val now = System.currentTimeMillis()
+                db.taskDao().upsert(
+                    TaskEntity(
+                        id = taskId,
+                        sessionId = sessionId,
+                        status = status.name,
+                        stepsJson = JSONArray(steps.map {
+                            JSONObject()
+                                .put("index", it.index)
+                                .put("type", it.type.name)
+                                .put("content", it.content.take(2000))
+                                .put("tool", it.toolName)
+                        }).toString(),
+                        progressMessage = progress.take(300),
+                        createdAt = taskCreatedAt,
+                        updatedAt = now
+                    )
+                )
+            }
             fun emitStep(type: StepType, content: String, tool: String? = null, result: String? = null) {
                 val step = AgentStep(steps.size, type, content, tool, result)
                 steps.add(step)
                 _events.tryEmit(AgentUiEvent.Step(step))
             }
 
+            var finishedNormally = false
             try {
+                persistTask(TaskStatus.RUNNING, "Starting")
                 // persist user message
                 val userMsgId = UUID.randomUUID().toString()
                 db.messageDao().insert(
@@ -89,10 +113,10 @@ class AgentRuntime(
                     ensureActive()
                     stepCount++
                     val apiKey = secureStore.getSecret(config.apiKeyAlias)
-                        ?: run {
-                            emitStep(StepType.ERROR, "API key missing for provider ${config.name}")
-                            break
-                        }
+                    if (apiKey == null) {
+                        emitStep(StepType.ERROR, "API key missing for provider ${config.name}")
+                        break
+                    }
 
                     val request = ChatRequest(
                         model = model,
@@ -123,7 +147,7 @@ class AgentRuntime(
                             is ChatEvent.Finished -> finishReason = event.finishReason
                             is ChatEvent.Error -> {
                                 emitStep(StepType.ERROR, event.message)
-                                throw CancellationException(event.message)
+                                throw IOException("Provider request failed: ${event.message}")
                             }
                             is ChatEvent.Usage -> { /* optional tracking */ }
                         }
@@ -150,6 +174,7 @@ class AgentRuntime(
 
                     if (pendingTools.isEmpty() || finishReason != "tool_calls") {
                         emitStep(StepType.SUMMARY, "Completed in $stepCount step(s)")
+                        finishedNormally = true
                         break
                     }
 
@@ -166,9 +191,11 @@ class AgentRuntime(
 
                         when (result) {
                             is ToolResult.NeedsApproval -> {
-                                _events.emit(AgentUiEvent.NeedsApproval(result.toolName, result.args, result.reason))
-                                // wait for external approval signal — for spine we pause the loop
                                 emitStep(StepType.ERROR, "Awaiting user approval for ${result.toolName}")
+                                withContext(NonCancellable) {
+                                    persistTask(TaskStatus.AWAITING_APPROVAL, "Approval required for ${result.toolName}")
+                                }
+                                _events.emit(AgentUiEvent.NeedsApproval(result.toolName, result.args, result.reason))
                                 return@launch
                             }
                             is ToolResult.Success -> {
@@ -195,29 +222,23 @@ class AgentRuntime(
                     }
                 }
 
-                // persist task
-                db.taskDao().upsert(
-                    TaskEntity(
-                        taskId,
-                        sessionId,
-                        TaskStatus.COMPLETED.name,
-                        JSONArray(steps.map {
-                            JSONObject()
-                                .put("index", it.index)
-                                .put("type", it.type.name)
-                                .put("content", it.content.take(2000))
-                                .put("tool", it.toolName)
-                        }).toString(),
-                        "done",
-                        System.currentTimeMillis(),
-                        System.currentTimeMillis()
-                    )
-                )
-                _events.emit(AgentUiEvent.Completed(taskId))
+                if (finishedNormally) {
+                    persistTask(TaskStatus.COMPLETED, "done")
+                    _events.emit(AgentUiEvent.Completed(taskId))
+                } else {
+                    persistTask(TaskStatus.FAILED, "Execution ended before completion")
+                    _events.emit(AgentUiEvent.Failed("Execution ended before completion"))
+                }
             } catch (e: CancellationException) {
+                withContext(NonCancellable) {
+                    runCatching { persistTask(TaskStatus.CANCELLED, "Cancelled") }
+                }
                 _events.emit(AgentUiEvent.Cancelled)
             } catch (e: Exception) {
                 emitStep(StepType.ERROR, e.message ?: "agent failure")
+                withContext(NonCancellable) {
+                    runCatching { persistTask(TaskStatus.FAILED, "Execution failed") }
+                }
                 _events.emit(AgentUiEvent.Failed(e.message ?: "unknown"))
             }
         }

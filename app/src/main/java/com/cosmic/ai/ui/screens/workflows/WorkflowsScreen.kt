@@ -32,7 +32,7 @@ fun WorkflowsScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Text("Example · Project monitor")
                     Text("1 Check repo  2 Detect changes  3 Run tests  4 Analyze  5 Report  6 Approval", style = MaterialTheme.typography.bodySmall)
                 }

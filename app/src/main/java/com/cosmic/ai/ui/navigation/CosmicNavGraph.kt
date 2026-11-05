@@ -4,6 +4,7 @@ package com.cosmic.ai.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -26,7 +27,6 @@ import com.cosmic.ai.ui.screens.bugs.BugCenterScreen
 import com.cosmic.ai.core.update.UpdateDecision
 import com.cosmic.ai.core.update.UpdateEvaluation
 import com.cosmic.ai.update.UpdateChecker
-import com.cosmic.ai.update.UpdateRepository
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,21 +63,13 @@ fun CosmicNavGraph(navController: NavHostController) {
     // Startup update check — failure does not crash
     LaunchedEffect(Unit) {
         try {
-            val endpoint = com.cosmic.ai.update.UpdateConfig.ENDPOINT
-            val checker = UpdateChecker(context, UpdateRepository(endpoint))
+            val checker = UpdateChecker(context)
             updateEval = checker.check()
         } catch (_: Exception) {
             updateEval = null
         } finally {
             updateChecked = true
         }
-    }
-
-    val gatedStart = when {
-        !updateChecked -> start
-        allowContinue -> start
-        updateEval?.decision == UpdateDecision.MANDATORY || updateEval?.decision == UpdateDecision.OPTIONAL -> Routes.UPDATE
-        else -> start
     }
 
     NavHost(navController = navController, startDestination = if (updateChecked && (updateEval?.decision == UpdateDecision.MANDATORY || updateEval?.decision == UpdateDecision.OPTIONAL) && !allowContinue) Routes.UPDATE else start) {

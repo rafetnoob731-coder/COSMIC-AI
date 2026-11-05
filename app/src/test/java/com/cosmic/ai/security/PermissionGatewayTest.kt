@@ -63,6 +63,16 @@ class PermissionGatewayTest {
     }
 
     @Test
+    fun auditDetailRedactsCredentialsBeforeStorage() {
+        val g = PermissionGateway()
+        g.check(PermissionLevel.READ, "inspect", "Authorization: Bearer abc123 {\"api_key\":\"xyz789\"}")
+        val detail = g.auditLog().single().detail
+        assertFalse(detail.contains("abc123"))
+        assertFalse(detail.contains("xyz789"))
+        assertTrue(detail.contains("[REDACTED]"))
+    }
+
+    @Test
     fun lanCleartextDefaultOff() {
         val g = PermissionGateway()
         assertFalse(g.allowLanCleartext())

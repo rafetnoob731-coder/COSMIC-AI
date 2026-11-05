@@ -49,7 +49,7 @@ fun BugCenterScreen(
             )
         }
     ) { padding ->
-        Column(Modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Dashboard") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Report") })
@@ -68,7 +68,7 @@ fun BugCenterScreen(
 
 @Composable
 private fun Dashboard(bugs: List<BugReport>) {
-    Column(Modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Outlined.BugReport, contentDescription = null, modifier = Modifier.size(40.dp))
         Text("COSMIC Bug Center", style = MaterialTheme.typography.titleLarge)
         Text(
@@ -77,7 +77,7 @@ private fun Dashboard(bugs: List<BugReport>) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Text("Local reports: ${bugs.size}")
                 val open = bugs.count { it.status != BugStatus.FIXED && it.status != BugStatus.RELEASED && it.status != BugStatus.REJECTED }
                 Text("Open: $open")
@@ -169,7 +169,7 @@ private fun ReportForm(repo: BugRepository, onSubmitted: () -> Unit) {
 @Composable
 private fun MyReports(bugs: List<BugReport>) {
     if (bugs.isEmpty()) {
-        Box(Modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
             Text("No reports yet. Use the Report tab or type /bugs new in chat.")
         }
         return
@@ -180,7 +180,7 @@ private fun MyReports(bugs: List<BugReport>) {
     ) {
         items(bugs, key = { it.id }) { b ->
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(b.id, style = MaterialTheme.typography.labelMedium)
                     Text(b.title, style = MaterialTheme.typography.titleMedium)
                     Text("${b.category} · ${b.status}", style = MaterialTheme.typography.bodySmall)
