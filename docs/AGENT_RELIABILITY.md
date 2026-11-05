@@ -24,7 +24,7 @@ There were independent reliability defects in the same path:
 - Brave Search is a separate HTTP service and tool. Its API key has a dedicated encrypted-store alias and separate Settings entry; results contain the source URLs returned by Brave. No key is hardcoded or included in this repository. The key shared in chat should be rotated before production use and entered again in Settings.
 - OpenAI-compatible, Anthropic, and Gemini model discovery follow provider pagination indicators when present. Settings supports filtering the returned model list and retains manual model-ID entry.
 
-## Phase 2 task durability work (current branch, pending Android CI verification)
+## Phase 2 task durability work
 
 - Added schema v2 fields for provider recovery metadata, selected model/mode, max steps, attempt count, project URI, cancellation request, and transition history. Provider snapshot contains only the credential alias; it does not contain the API key or arbitrary provider extras.
 - Added an explicit Room migration from schema v1 and removed destructive fallback migration. Existing task rows are retained.
@@ -33,21 +33,24 @@ There were independent reliability defects in the same path:
 - WorkManager schedules unique persistent work per task ID, constrained to connected network and non-low battery. Startup re-enqueues unfinished Room tasks in case the process died between task commit and work enqueue. A foreground worker reports the actual persisted stage and offers notification cancellation.
 - Worker retries are bounded to five attempts for scheduler contention or worker infrastructure errors. Provider/task errors stay in the Room state; uncertain RUNNING tool calls become UNKNOWN and are never automatically repeated.
 - Resume restores the persisted conversation, provider identity/configuration, model, mode, step budget, and selected SAF URI. If an interrupted tool call is repeated, its durable ledger blocks duplicate execution and gives the model the stored result or an explicit unknown-outcome failure.
-- Added Room-backed tests for transition history/validation, interrupted tool safety, and call-ID argument mismatch. These changes have not yet passed Android compilation or tests in this environment.
+- Added Room-backed tests for transition history/validation, interrupted tool safety, and call-ID argument mismatch. The implementation passed Android CI compilation and the regression suite on the feature branch; see the verification record below.
 
 ## Verification
 
-- Commit `e9b09cd` passed wrapper validation, Kotlin compilation, 56 unit tests (0 failed, 0 skipped), Android lint, debug APK assembly, and artifact uploads in [Android CI run 42070890889](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070890889).
-- The [`app-debug.apk` workflow artifact](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070890889/artifacts/13436211838) is 19,125,910 bytes and currently expires November 19, 2026.
-- End-to-end runtime tests cover a successful `hi` response through the actual OpenAI-compatible streaming adapter and Room, completion-after-persistence, missing credentials, HTTP 401 with sanitized response text, and a dropped network connection. Tool tests cover multi-call fragment reconstruction and malformed/truncated arguments. Provider tests cover model pagination and streaming 429 handling. Brave tests use deterministic MockWebServer responses.
-- Local `./gradlew help` succeeds. Android build tasks cannot run locally because this Termux environment has no Android SDK.
+- Feature branch: `codex/build-stabilization`; verified code commit: `f0f8f7116a44f442e860355e2b011bda7f30a6ed` (`test(tasks): model valid tool wait transition`). No merge to `main` was performed.
+- GitHub Actions run [42080123047](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42080123047) passed wrapper validation, Android SDK setup (API 35), Kotlin compilation, unit tests, Android lint, and debug APK assembly.
+- Unit test report: 18 test suites, 66 tests, 0 failures, 0 errors, 0 skipped. This includes opening and migrating a fixture created from the actual Room v1 schema, task transition persistence, interrupted task/tool recovery, UNKNOWN outcome handling, and unique WorkManager scheduling.
+- KSP-generated Room schema v2 from CI was downloaded and byte-compared with the committed `app/schemas/com.cosmic.ai.data.local.db.CosmicDatabase/2.json`; they match. The v1 fixture migration test passed.
+- Android lint completed with 0 errors and 51 warnings. Warnings include dependency-age recommendations, SDK checks/resources that are redundant for minSdk 26, unused resources, and a missing adaptive-icon monochrome layer. These are reported rather than suppressed.
+- Debug APK workflow artifact: [download](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42080123047/artifacts/13440188176), `app-debug.apk`, 19,744,052 bytes in the downloaded artifact; ZIP integrity check passed. Verification reports and Room schemas: [download](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42080123047/artifacts/13440411708).
+- Local `./gradlew help` succeeds. Full Android tasks used CI because this Termux environment has no Android SDK. No emulator or physical device is attached, so installation/startup and Android notification behavior were not device-verified.
 
 ## Remaining limitations
 
 - The app has not been installed or exercised on a physical Android device here. Thus no screenshot or UI instrumentation result is claimed.
-- The test suite does not yet cover timeout, HTTP 500, lifecycle/process-death recovery, or every provider's tool-call format. The adapter's HTTP tests include 429; runtime end-to-end tests include 401 and network disconnect.
+- The new suite covers persisted interrupted-task/tool recovery and duplicate WorkManager scheduling, but it does not simulate operating-system process death on an Android device or exercise all provider tool-call streaming formats. Device lifecycle behavior remains unverified.
 - Provider-independent tool validation currently checks complete JSON objects and top-level required fields/types; it is not a full JSON Schema validator. Safe repair/retry of malformed model arguments is not implemented.
-- Phase 2 persists a replayable user conversation/provider configuration snapshot and offers explicit task resume. A live provider stream is not resumed byte-for-byte; resume submits the persisted conversation to the model again. Uncertain in-flight side effects are blocked as UNKNOWN and require a new user-directed attempt. Recovery, migration, timeout, and cancellation behavior are implemented but remain unverified until CI can compile and run the suite.
+- Phase 2 persists a replayable user conversation/provider configuration snapshot and offers explicit task resume. A live provider stream is not resumed byte-for-byte; resume submits the persisted conversation to the model again. Uncertain in-flight side effects are blocked as UNKNOWN and require a new user-directed attempt. Room migration and repository-level recovery paths were run in CI. Physical process death and OEM background behavior remain unverified on-device.
 - Brave Search returns and cites search result titles, URLs, and snippets. It does not fetch full pages or extract page content. A configured Brave key and live Brave API account are needed for external search; deterministic tests use a mock HTTP server.
 - The central multi-agent planner/handoff system, model-cost router, structured result contracts, loop detection, and autonomous result verification remain incomplete. Current runtime is a single model's bounded tool loop.
 - MCP remains the implemented JSON-RPC subset. Approval-mediated MCP invocation, OAuth, resources/prompts, and complete Streamable HTTP/SSE interoperability remain incomplete.
