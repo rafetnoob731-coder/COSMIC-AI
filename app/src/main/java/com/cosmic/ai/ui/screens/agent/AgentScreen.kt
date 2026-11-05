@@ -339,6 +339,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                     }
                 }
             }
+            }
         ) { padding ->
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
