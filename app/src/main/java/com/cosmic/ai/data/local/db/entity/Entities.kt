@@ -2,6 +2,7 @@
 package com.cosmic.ai.data.local.db.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "sessions")
@@ -45,6 +46,31 @@ data class TaskEntity(
     val status: String,
     val stepsJson: String,
     val progressMessage: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val providerConfigJson: String? = null,
+    val modelName: String? = null,
+    val mode: String? = null,
+    @ColumnInfo(defaultValue = "12") val maxSteps: Int = 12,
+    @ColumnInfo(defaultValue = "0") val attempt: Int = 0,
+    val projectUri: String? = null,
+    val requestMessageId: String? = null,
+    @ColumnInfo(defaultValue = "0") val cancelRequested: Boolean = false,
+    @ColumnInfo(defaultValue = "'[]'") val transitionHistoryJson: String = "[]"
+)
+
+@Entity(tableName = "tool_executions", primaryKeys = ["taskId", "callId"],
+    indices = [androidx.room.Index(value = ["taskId", "state"])])
+data class ToolExecutionEntity(
+    val taskId: String,
+    val callId: String,
+    val toolName: String,
+    val argumentsJson: String,
+    val argumentsHash: String,
+    val state: String,
+    val idempotent: Boolean,
+    val resultJson: String? = null,
+    val error: String? = null,
     val createdAt: Long,
     val updatedAt: Long
 )

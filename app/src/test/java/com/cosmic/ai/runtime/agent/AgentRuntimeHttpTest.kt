@@ -3,6 +3,9 @@ package com.cosmic.ai.runtime.agent
 import android.app.Application
 import androidx.room.Room
 import com.cosmic.ai.data.local.db.CosmicDatabase
+import com.cosmic.ai.data.local.db.entity.MessageEntity
+import com.cosmic.ai.data.local.db.entity.TaskEntity
+import com.cosmic.ai.runtime.background.TaskWorkerOutcome
 import com.cosmic.ai.domain.provider.ProviderConfig
 import com.cosmic.ai.domain.provider.ProviderType
 import com.cosmic.ai.runtime.mcp.McpClientManager
@@ -59,7 +62,7 @@ class AgentRuntimeHttpTest {
 
         """.trimIndent()))
         val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "test-key" }, McpClientManager(),
-            { OpenAiCompatibleProvider() })
+            { OpenAiCompatibleProvider() }, enqueueTaskWork = { _, _ -> })
         val done = CompletableDeferred<AgentUiEvent>()
         val collector = CoroutineScope(coroutineContext).launch {
             runtime.events.collect { event ->
@@ -80,7 +83,7 @@ class AgentRuntimeHttpTest {
     @Test fun unauthorizedProviderResponseIsReportedAsHttp401AndPersistedFailed() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401).setBody("private authorization response"))
         val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "invalid-key" }, McpClientManager(),
-            { OpenAiCompatibleProvider() })
+            { OpenAiCompatibleProvider() }, enqueueTaskWork = { _, _ -> })
         val done = CompletableDeferred<AgentUiEvent.Failed>()
         val collector = CoroutineScope(coroutineContext).launch {
             runtime.events.collect { event -> if (event is AgentUiEvent.Failed) done.complete(event) }
@@ -98,7 +101,7 @@ class AgentRuntimeHttpTest {
     @Test fun providerNetworkDisconnectFailsInsteadOfReportingCompletion() = runBlocking {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
         val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "test-key" }, McpClientManager(),
-            { OpenAiCompatibleProvider() })
+            { OpenAiCompatibleProvider() }, enqueueTaskWork = { _, _ -> })
         val done = CompletableDeferred<AgentUiEvent>()
         val collector = CoroutineScope(coroutineContext).launch {
             runtime.events.collect { event -> if (event is AgentUiEvent.Failed || event is AgentUiEvent.Completed) done.complete(event) }
@@ -111,8 +114,38 @@ class AgentRuntimeHttpTest {
         collector.cancel()
     }
 
+    @Test fun workerRecoversPersistedTaskFromInterruptedModelWait() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("""
+            data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Recovered"},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+            data: [DONE]
+
+        """.trimIndent()))
+        val userId = "recovery-user-message"
+        database.messageDao().insert(MessageEntity(userId, "recovery-session", "user", "hi", createdAt = 100L))
+        val config = ProviderConfig("test", "Mock OpenAI", ProviderType.OPENAI_COMPATIBLE,
+            server.url("/v1").toString().trimEnd('/'), "api-key", "test-model")
+        database.taskDao().upsert(TaskEntity(
+            id = "recovery-task", sessionId = "recovery-session", status = "WAITING_FOR_MODEL",
+            stepsJson = "[]", progressMessage = "Waiting for model", createdAt = 90L, updatedAt = 100L,
+            providerConfigJson = org.json.JSONObject()
+                .put("id", config.id).put("name", config.name).put("type", config.type.name)
+                .put("baseUrl", config.baseUrl).put("apiKeyAlias", config.apiKeyAlias)
+                .put("defaultModel", config.defaultModel).toString(),
+            modelName = "test-model", mode = "CHAT", requestMessageId = userId
+        ))
+        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "test-key" }, McpClientManager(),
+            { OpenAiCompatibleProvider() }, enqueueTaskWork = { _, _ -> })
+        val outcome = runtime.runOrRecoverPersistedTask("recovery-task") { }
+        assertEquals(TaskWorkerOutcome.FINISHED, outcome)
+        assertEquals("COMPLETED", database.taskDao().getById("recovery-task")?.status)
+        assertEquals(listOf("hi", "Recovered"), database.messageDao().getForSession("recovery-session").map { it.content })
+    }
+
     @Test fun missingCredentialFailsWithConfigurationErrorInsteadOfGenericIncompleteMessage() = runBlocking {
-        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { null }, McpClientManager())
+        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { null }, McpClientManager(), enqueueTaskWork = { _, _ -> })
         val done = CompletableDeferred<AgentUiEvent>()
         val collector = CoroutineScope(coroutineContext).launch {
             runtime.events.collect { event -> if (event is AgentUiEvent.Failed) done.complete(event) }

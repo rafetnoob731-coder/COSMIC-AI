@@ -34,7 +34,13 @@ Cleartext only for localhost/127.0.0.1 in network_security_config
 
 ## Agent
 
-Structured tool calling via provider adapters. Real tool execution. Cancellation. Task state machine for persistence surface.
+Structured tool calling via provider adapters. Real tool execution. Task state and tool claims are persisted in Room. `TaskLifecycleRepository` validates transitions and appends a transition history. Tool claims use `(taskId, callId)` plus an argument hash. A RUNNING call recovered after process death becomes UNKNOWN and is not automatically replayed because its side effect may already have happened. Resume replays the persisted conversation through the selected provider and restores model/mode/project context; it does not continue a network stream byte-for-byte.
+
+Schema v2 migrates v1 task rows without destructive fallback. Provider recovery metadata stores provider identity and the Keystore alias only, never the credential itself. App startup restores unique WorkManager requests for persisted unfinished tasks. The worker claims task state transactionally, resumes persisted context, and records progress back into the same Room task row. A tool left in RUNNING is made UNKNOWN and cannot be automatically replayed.
+
+## Background execution
+
+A unique `AgentTaskWorker` runs with connected-network and battery-not-low constraints. It promotes to a foreground worker with a task-specific notification and cancel action. Worker retries are bounded for scheduling contention and infrastructure exceptions; task/provider failures remain visible in Room and are not automatically resubmitted. Android may defer constrained work, and force-stop/battery policies remain platform-controlled.
 
 ## Tests
 

@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.cosmic.ai.CosmicApplication
+import com.cosmic.ai.runtime.background.AgentTaskWork
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,7 +41,7 @@ fun BackgroundTasksScreen(onBack: () -> Unit) {
             if (tasks.isEmpty()) {
                 item {
                     Text(
-                        "No background tasks yet. Long agent runs will appear here and can use the foreground service.",
+                        "No persisted agent tasks yet. Tasks interrupted by process death are preserved here for review and recovery.",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp)
                     )
@@ -52,6 +53,12 @@ fun BackgroundTasksScreen(onBack: () -> Unit) {
                         Text(t.status, style = MaterialTheme.typography.titleMedium)
                         Text(t.progressMessage ?: "", style = MaterialTheme.typography.bodySmall)
                         Text("Session: ${t.sessionId.take(8)}…", style = MaterialTheme.typography.bodySmall)
+                        if (t.status in setOf("RECOVERY_REQUIRED", "RETRYABLE", "QUEUED")) {
+                            Spacer(Modifier.height(8.dp))
+                            Button(onClick = { AgentTaskWork.enqueue(CosmicApplication.instance, t.id) }) {
+                                Text(if (t.status == "QUEUED") "Resume queued task" else "Resume task")
+                            }
+                        }
                     }
                 }
             }

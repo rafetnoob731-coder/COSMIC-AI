@@ -1,0 +1,174 @@
+package com.cosmic.ai.data.local.db
+
+import androidx.room.withTransaction
+import com.cosmic.ai.core.state.TaskTransitions
+import com.cosmic.ai.data.local.db.entity.TaskEntity
+import com.cosmic.ai.data.local.db.entity.MessageEntity
+import com.cosmic.ai.data.local.db.entity.ToolExecutionEntity
+import com.cosmic.ai.domain.agent.TaskStatus
+import org.json.JSONArray
+import org.json.JSONObject
+
+class TaskLifecycleRepository(private val database: CosmicDatabase) {
+    suspend fun create(task: TaskEntity, initialMessage: MessageEntity? = null) = database.withTransaction {
+        require(database.taskDao().getById(task.id) == null) { "Task already exists: ${task.id}" }
+        val status = TaskStatus.valueOf(task.status)
+        require(status == TaskStatus.PENDING || status == TaskStatus.QUEUED) {
+            "New tasks must start in PENDING or QUEUED"
+        }
+        val now = System.currentTimeMillis()
+        val history = JSONArray(task.transitionHistoryJson).put(transitionRecord(status, now, "created"))
+        database.taskDao().upsert(task.copy(transitionHistoryJson = history.toString(), updatedAt = now))
+        initialMessage?.let { database.messageDao().insert(it) }
+    }
+
+    /** Atomically grants one worker ownership of a queued/recoverable task. */
+    suspend fun claimForExecution(taskId: String): TaskEntity? = database.withTransaction {
+        val current = database.taskDao().getById(taskId) ?: return@withTransaction null
+        val source = TaskStatus.valueOf(current.status)
+        if (source !in setOf(TaskStatus.QUEUED, TaskStatus.RECOVERY_REQUIRED, TaskStatus.RETRYABLE)) {
+            return@withTransaction null
+        }
+        val now = System.currentTimeMillis()
+        val history = JSONArray(current.transitionHistoryJson)
+        if (source != TaskStatus.QUEUED) {
+            TaskTransitions.requireTransition(source, TaskStatus.QUEUED)
+            history.put(transitionRecord(TaskStatus.QUEUED, now, "Worker claimed recovery task"))
+        }
+        TaskTransitions.requireTransition(TaskStatus.QUEUED, TaskStatus.STARTING)
+        history.put(transitionRecord(TaskStatus.STARTING, now, "Execution claimed"))
+        val claimed = current.copy(
+            status = TaskStatus.STARTING.name,
+            progressMessage = "Starting",
+            transitionHistoryJson = history.toString(),
+            updatedAt = now
+        )
+        database.taskDao().upsert(claimed)
+        claimed
+    }
+
+    suspend fun transition(taskId: String, target: TaskStatus, progress: String): TaskEntity = database.withTransaction {
+        val current = database.taskDao().getById(taskId) ?: error("Task not found: $taskId")
+        val source = TaskStatus.valueOf(current.status)
+        TaskTransitions.requireTransition(source, target)
+        val now = System.currentTimeMillis()
+        val history = JSONArray(current.transitionHistoryJson).put(transitionRecord(target, now, progress))
+        val updated = current.copy(
+            status = target.name,
+            progressMessage = progress.take(300),
+            transitionHistoryJson = history.toString(),
+            updatedAt = now
+        )
+        database.taskDao().upsert(updated)
+        updated
+    }
+
+    suspend fun requestCancel(taskId: String) = database.withTransaction {
+        val current = database.taskDao().getById(taskId) ?: return@withTransaction
+        if (!TaskTransitions.isTerminal(TaskStatus.valueOf(current.status))) {
+            database.taskDao().upsert(current.copy(cancelRequested = true, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    suspend fun recoverable(): List<TaskEntity> = database.taskDao().getRecoverable()
+
+    suspend fun markInterruptedTaskForRecovery(taskId: String): Boolean = database.withTransaction {
+        val task = database.taskDao().getById(taskId) ?: return@withTransaction false
+        val source = TaskStatus.valueOf(task.status)
+        if (source == TaskStatus.RECOVERY_REQUIRED) return@withTransaction true
+        if (!TaskTransitions.canTransition(source, TaskStatus.RECOVERY_REQUIRED)) return@withTransaction false
+        val now = System.currentTimeMillis()
+        val history = JSONArray(task.transitionHistoryJson)
+            .put(transitionRecord(TaskStatus.RECOVERY_REQUIRED, now, "Worker resumed task after process interruption"))
+        database.taskDao().upsert(task.copy(
+            status = TaskStatus.RECOVERY_REQUIRED.name,
+            progressMessage = "Interrupted. Recovering persisted task.",
+            transitionHistoryJson = history.toString(),
+            updatedAt = now
+        ))
+        database.toolExecutionDao().markTaskRunningUnknown(
+            taskId, "Process ended while tool was running; automatic replay prevented", now
+        )
+        true
+    }
+
+    /** Marks interrupted work for explicit recovery; uncertain tool side effects are never replayed. */
+    suspend fun markInterruptedTasksForRecovery(): List<String> = database.withTransaction {
+        val interrupted = database.taskDao().getRecoverable()
+        val now = System.currentTimeMillis()
+        val ids = interrupted.mapNotNull { task ->
+            val status = TaskStatus.valueOf(task.status)
+            if (!TaskTransitions.canTransition(status, TaskStatus.RECOVERY_REQUIRED)) return@mapNotNull null
+            val history = JSONArray(task.transitionHistoryJson)
+                .put(transitionRecord(TaskStatus.RECOVERY_REQUIRED, now, "Process ended during execution"))
+            database.taskDao().upsert(task.copy(
+                status = TaskStatus.RECOVERY_REQUIRED.name,
+                progressMessage = "Interrupted. Review execution history before resuming.",
+                transitionHistoryJson = history.toString(),
+                updatedAt = now
+            ))
+            task.id
+        }
+        database.toolExecutionDao().markRunningUnknown(now)
+        ids
+    }
+
+    suspend fun prepareToolCall(taskId: String, callId: String, toolName: String, argsJson: String,
+                                argsHash: String, idempotent: Boolean): ToolExecutionEntity = database.withTransaction {
+        require(database.taskDao().getById(taskId) != null) { "Cannot execute a tool for a missing task" }
+        val old = database.toolExecutionDao().get(taskId, callId)
+        if (old != null) {
+            require(old.argumentsHash == argsHash && old.toolName == toolName) {
+                "Tool call ID was reused with different arguments"
+            }
+            return@withTransaction old
+        }
+        val now = System.currentTimeMillis()
+        val record = ToolExecutionEntity(taskId, callId, toolName, argsJson, argsHash,
+            "PREPARED", idempotent, createdAt = now, updatedAt = now)
+        database.toolExecutionDao().insert(record)
+        record
+    }
+
+    suspend fun startToolCall(taskId: String, callId: String): ToolExecutionEntity = database.withTransaction {
+        val record = database.toolExecutionDao().get(taskId, callId) ?: error("Tool call was not prepared")
+        when (record.state) {
+            "SUCCEEDED", "FAILED", "UNKNOWN", "NEEDS_APPROVAL" -> return@withTransaction record
+            "RUNNING" -> {
+                database.toolExecutionDao().setState(taskId, callId, "UNKNOWN", "Execution outcome is unknown; automatic replay prevented", System.currentTimeMillis())
+                return@withTransaction record.copy(state = "UNKNOWN", error = "Execution outcome is unknown; automatic replay prevented")
+            }
+            "PREPARED" -> Unit
+            else -> error("Unsupported tool execution state ${record.state}")
+        }
+        val now = System.currentTimeMillis()
+        val updated = database.toolExecutionDao().compareAndSetState(taskId, callId, record.state, "RUNNING", now)
+        if (updated != 1) error("Tool call was claimed by another execution")
+        record.copy(state = "RUNNING", updatedAt = now)
+    }
+
+    suspend fun completeToolCall(taskId: String, callId: String, resultJson: String): Boolean = database.withTransaction {
+        val record = database.toolExecutionDao().get(taskId, callId) ?: return@withTransaction false
+        if (record.state == "SUCCEEDED") return@withTransaction record.resultJson == resultJson
+        if (record.state != "RUNNING") return@withTransaction false
+        database.toolExecutionDao().complete(taskId, callId, "SUCCEEDED", resultJson, null, System.currentTimeMillis()) == 1
+    }
+
+    suspend fun failToolCall(taskId: String, callId: String, error: String): Boolean = database.withTransaction {
+        database.toolExecutionDao().complete(taskId, callId, "FAILED", null, error.take(500), System.currentTimeMillis()) == 1
+    }
+
+    suspend fun markApproval(taskId: String, callId: String): Boolean = database.withTransaction {
+        database.toolExecutionDao().complete(taskId, callId, "NEEDS_APPROVAL", null, null, System.currentTimeMillis()) == 1
+    }
+
+    suspend fun markTaskToolsUnknown(taskId: String, reason: String) = database.withTransaction {
+        database.toolExecutionDao().markTaskRunningUnknown(taskId, reason.take(300), System.currentTimeMillis())
+    }
+
+    suspend fun toolCalls(taskId: String): List<ToolExecutionEntity> = database.toolExecutionDao().forTask(taskId)
+
+    private fun transitionRecord(status: TaskStatus, at: Long, detail: String) =
+        JSONObject().put("status", status.name).put("at", at).put("detail", detail.take(300))
+
+}

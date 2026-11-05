@@ -24,6 +24,17 @@ There were independent reliability defects in the same path:
 - Brave Search is a separate HTTP service and tool. Its API key has a dedicated encrypted-store alias and separate Settings entry; results contain the source URLs returned by Brave. No key is hardcoded or included in this repository. The key shared in chat should be rotated before production use and entered again in Settings.
 - OpenAI-compatible, Anthropic, and Gemini model discovery follow provider pagination indicators when present. Settings supports filtering the returned model list and retains manual model-ID entry.
 
+## Phase 2 task durability work (current branch, pending Android CI verification)
+
+- Added schema v2 fields for provider recovery metadata, selected model/mode, max steps, attempt count, project URI, cancellation request, and transition history. Provider snapshot contains only the credential alias; it does not contain the API key or arbitrary provider extras.
+- Added an explicit Room migration from schema v1 and removed destructive fallback migration. Existing task rows are retained.
+- Added a validated task transition repository and an execution ledger keyed by task ID and provider tool-call ID. Tool argument hashes detect call-ID reuse with different input. A tool marked RUNNING during interruption is changed to UNKNOWN; it is never blindly replayed because its side effect may already have happened.
+- The runtime records task transitions and durable tool outcomes, applies a 120-second tool timeout, persists final messages before completion, and restores conversation context for recovery. A transactionally claimed task cannot be started by two local workers at once.
+- WorkManager schedules unique persistent work per task ID, constrained to connected network and non-low battery. Startup re-enqueues unfinished Room tasks in case the process died between task commit and work enqueue. A foreground worker reports the actual persisted stage and offers notification cancellation.
+- Worker retries are bounded to five attempts for scheduler contention or worker infrastructure errors. Provider/task errors stay in the Room state; uncertain RUNNING tool calls become UNKNOWN and are never automatically repeated.
+- Resume restores the persisted conversation, provider identity/configuration, model, mode, step budget, and selected SAF URI. If an interrupted tool call is repeated, its durable ledger blocks duplicate execution and gives the model the stored result or an explicit unknown-outcome failure.
+- Added Room-backed tests for transition history/validation, interrupted tool safety, and call-ID argument mismatch. These changes have not yet passed Android compilation or tests in this environment.
+
 ## Verification
 
 - Commit `e9b09cd` passed wrapper validation, Kotlin compilation, 56 unit tests (0 failed, 0 skipped), Android lint, debug APK assembly, and artifact uploads in [Android CI run 42070890889](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070890889).
@@ -36,9 +47,9 @@ There were independent reliability defects in the same path:
 - The app has not been installed or exercised on a physical Android device here. Thus no screenshot or UI instrumentation result is claimed.
 - The test suite does not yet cover timeout, HTTP 500, lifecycle/process-death recovery, or every provider's tool-call format. The adapter's HTTP tests include 429; runtime end-to-end tests include 401 and network disconnect.
 - Provider-independent tool validation currently checks complete JSON objects and top-level required fields/types; it is not a full JSON Schema validator. Safe repair/retry of malformed model arguments is not implemented.
-- Task state is persisted, but process-death recovery does not resume an interrupted provider stream or tool execution. Existing task records do not yet carry a full replayable request/approval contract.
+- Phase 2 persists a replayable user conversation/provider configuration snapshot and offers explicit task resume. A live provider stream is not resumed byte-for-byte; resume submits the persisted conversation to the model again. Uncertain in-flight side effects are blocked as UNKNOWN and require a new user-directed attempt. Recovery, migration, timeout, and cancellation behavior are implemented but remain unverified until CI can compile and run the suite.
 - Brave Search returns and cites search result titles, URLs, and snippets. It does not fetch full pages or extract page content. A configured Brave key and live Brave API account are needed for external search; deterministic tests use a mock HTTP server.
 - The central multi-agent planner/handoff system, model-cost router, structured result contracts, loop detection, and autonomous result verification remain incomplete. Current runtime is a single model's bounded tool loop.
 - MCP remains the implemented JSON-RPC subset. Approval-mediated MCP invocation, OAuth, resources/prompts, and complete Streamable HTTP/SSE interoperability remain incomplete.
-- Notifications/foreground service are not yet connected to the agent execution lifecycle; background completion notifications and durable task resume are not verified.
+- WorkManager and foreground notifications are now connected. Device-level behavior under OEM battery managers, force-stop, Android notification denial, and process death remains unverified until emulator/device tests run. Background work is deferred when network or battery constraints are unmet.
 - Attachments, rendered Markdown/code blocks, full appearance controls, original logo redesign, and responsive device screenshots remain outstanding. The existing orbital COSMIC mark is retained.

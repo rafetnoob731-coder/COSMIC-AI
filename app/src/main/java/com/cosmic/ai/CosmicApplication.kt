@@ -6,6 +6,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import androidx.work.Configuration
+import androidx.work.WorkManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.cosmic.ai.data.local.db.CosmicDatabase
 import com.cosmic.ai.data.local.keystore.SecureStore
 import com.cosmic.ai.runtime.agent.AgentRuntime
@@ -28,11 +33,20 @@ class CosmicApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        WorkManager.initialize(this, workManagerConfiguration)
         database = CosmicDatabase.build(this)
         secureStore = SecureStore(this)
         mcpManager = McpClientManager()
         permissionGateway = PermissionGateway()
         agentRuntime = AgentRuntime(this, database, secureStore::getSecret, mcpManager)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            // Restore WorkManager requests for tasks persisted before a process interruption.
+            try {
+                agentRuntime.recoverInterruptedTasks()
+            } catch (error: Exception) {
+                android.util.Log.e("CosmicTaskRecovery", "Could not reconcile interrupted tasks (${error.javaClass.simpleName})")
+            }
+        }
         createNotificationChannels()
     }
 
