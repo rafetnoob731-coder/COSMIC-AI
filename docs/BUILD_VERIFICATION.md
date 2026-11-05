@@ -33,5 +33,10 @@ Existing command, task state, permission, diff, and update parser/version tests 
 
 ## Recorded verification
 
-- Local environment: JDK 21 is present; Android SDK is absent. `./gradlew --version` reports Gradle 8.9. Android compile/lint/APK tasks cannot be verified locally until SDK installation or CI execution.
-- GitHub Actions result: pending stabilization changes and a CI run.
+- Local environment: JDK 21 is present; Android SDK is absent. `./gradlew --version` reports Gradle 8.9, and `./gradlew help` succeeds. Android compilation, lint, tests, and APK assembly were verified on GitHub Actions with JDK 17 and Android SDK API 35.
+- GitHub Actions: [Android CI run 42041728763](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42041728763), source commit `5805f7dc93cd2c5801862ab8617e0a55713e738f`, completed successfully. Wrapper validation, Kotlin compilation, unit tests, Android lint, debug APK assembly, and artifact upload all passed.
+- Unit tests: 42 passed, 0 failed, 0 skipped (`testDebugUnitTest`).
+- APK: `app-debug.apk`, 19,645,051 bytes, uploaded in the [debug APK workflow artifact](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42041728763). GitHub currently retains workflow artifacts until 2026-11-19; artifact availability is subject to repository retention settings.
+- Reports: lint HTML/XML/text, JUnit XML, and Room schema are uploaded in the separate verification-reports artifact for the same run.
+- Lint completed successfully. Its report contains advisory warnings (including dependency-age and unused resource notices); no lint error blocked the build.
+- Limitation: this verifies a clean GitHub Actions checkout of the stabilization branch, not a merge to `main`. Local Android build tasks remain unavailable because this environment has no Android SDK.
