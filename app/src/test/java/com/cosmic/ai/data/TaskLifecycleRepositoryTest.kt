@@ -55,6 +55,7 @@ class TaskLifecycleRepositoryTest {
     @Test fun interruptedTaskIsRecoverableAndRunningToolIsNeverReplayed() = runBlocking {
         lifecycle.create(task())
         lifecycle.transition("task", TaskStatus.STARTING, "Starting")
+        lifecycle.transition("task", TaskStatus.WAITING_FOR_MODEL, "Model request")
         lifecycle.transition("task", TaskStatus.WAITING_FOR_TOOL, "Tool")
         lifecycle.prepareToolCall("task", "call-1", "side_effect", "{}", "hash", idempotent = true)
         assertEquals("RUNNING", lifecycle.startToolCall("task", "call-1").state)
