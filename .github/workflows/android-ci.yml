@@ -69,6 +69,14 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      - name: Verify debug APK archive and signature
+        run: |
+          APK='app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          unzip -t "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+
       - name: Upload debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -76,6 +84,9 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+          # APKs are already compressed ZIPs; avoid a second DEFLATE layer and
+          # reduce corruption/parser issues in third-party artifact downloaders.
+          compression-level: 0
 
       - name: Upload build, test, and lint reports
         if: always()
