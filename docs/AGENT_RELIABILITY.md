@@ -26,15 +26,15 @@ There were independent reliability defects in the same path:
 
 ## Verification
 
-- On commit `e67d0d1`, Android CI passed wrapper validation, Kotlin compilation, 54 unit tests (0 failed, 0 skipped), Android lint, debug APK assembly, and artifact uploads. See [CI run 42070161177](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070161177).
-- The [`app-debug.apk` artifact](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070161177/artifacts/13436160939) is 19,125,843 bytes and is retained until 2026-11-19 under current repository settings.
-- The test artifact includes the runtime `hi` flow using MockWebServer and Room, missing-key handling, fragment assembly, Brave search, and model pagination. Two additional runtime checks for HTTP 401 and network disconnect are being added after this run.
+- Commit `e9b09cd` passed wrapper validation, Kotlin compilation, 56 unit tests (0 failed, 0 skipped), Android lint, debug APK assembly, and artifact uploads in [Android CI run 42070890889](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070890889).
+- The [`app-debug.apk` workflow artifact](https://github.com/rafetnoob731-coder/COSMIC-AI/actions/runs/42070890889/artifacts/13436211838) is 19,125,910 bytes and currently expires November 19, 2026.
+- End-to-end runtime tests cover a successful `hi` response through the actual OpenAI-compatible streaming adapter and Room, completion-after-persistence, missing credentials, HTTP 401 with sanitized response text, and a dropped network connection. Tool tests cover multi-call fragment reconstruction and malformed/truncated arguments. Provider tests cover model pagination and streaming 429 handling. Brave tests use deterministic MockWebServer responses.
 - Local `./gradlew help` succeeds. Android build tasks cannot run locally because this Termux environment has no Android SDK.
 
 ## Remaining limitations
 
 - The app has not been installed or exercised on a physical Android device here. Thus no screenshot or UI instrumentation result is claimed.
-- The `bbcae7f` CI test suite does not yet cover timeout, 500, lifecycle/process-death recovery, or every provider's tool-call format. The HTTP adapter test covers stream fragments and 429; the runtime tests cover success, missing credentials, and a server response failure/network disconnect in follow-up work.
+- The test suite does not yet cover timeout, HTTP 500, lifecycle/process-death recovery, or every provider's tool-call format. The adapter's HTTP tests include 429; runtime end-to-end tests include 401 and network disconnect.
 - Provider-independent tool validation currently checks complete JSON objects and top-level required fields/types; it is not a full JSON Schema validator. Safe repair/retry of malformed model arguments is not implemented.
 - Task state is persisted, but process-death recovery does not resume an interrupted provider stream or tool execution. Existing task records do not yet carry a full replayable request/approval contract.
 - Brave Search returns and cites search result titles, URLs, and snippets. It does not fetch full pages or extract page content. A configured Brave key and live Brave API account are needed for external search; deterministic tests use a mock HTTP server.
