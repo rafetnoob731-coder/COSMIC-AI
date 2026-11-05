@@ -461,13 +461,20 @@ private fun PermRow(label: String, value: Boolean, onChange: (Boolean) -> Unit) 
 
 @Composable
 private fun AppearanceSection() {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val context = LocalContext.current
+    val preferences = remember(context) { com.cosmic.ai.data.local.datastore.AppPreferences(context) }
+    val mode by preferences.theme.collectAsState(initial = "system")
+    val scope = rememberCoroutineScope()
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Appearance", style = MaterialTheme.typography.titleMedium)
-        Text("Deep navy workspace · purple / blue accents · system theme aware.", style = MaterialTheme.typography.bodyMedium)
-        ListItem(
-            headlineContent = { Text("Dark (default)") },
-            supportingContent = { Text("Premium developer surface") },
-            leadingContent = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) }
-        )
+        Text("Choose how COSMIC follows your display preference.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (value, label) ->
+            ListItem(
+                headlineContent = { Text(label) },
+                supportingContent = { Text(when (value) { "system" -> "Match Android appearance"; "light" -> "Use the light workspace"; else -> "Use the dark workspace" }) },
+                leadingContent = { RadioButton(selected = mode == value, onClick = { scope.launch { preferences.setTheme(value) } }) },
+                modifier = Modifier.fillMaxWidth().clickable { scope.launch { preferences.setTheme(value) } }
+            )
+        }
     }
 }

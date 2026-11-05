@@ -44,7 +44,7 @@ object Routes {
     const val WORKFLOWS = "workflows"
     const val MCP = "mcp"
     const val MEMORY = "memory"
-    const val BACKGROUND = "background"
+    const val BACKGROUND = "activity"
     const val SETTINGS = "settings"
     const val UPDATE = "update"
     const val BUGS = "bugs"
@@ -115,7 +115,16 @@ fun CosmicNavGraph(navController: NavHostController) {
         composable(Routes.AGENT) {
             AgentScreen(
                 onNavigate = { navController.navigate(it) },
-                onSettings = { navController.navigate(Routes.SETTINGS) }
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenConversation = { id -> navController.navigate("${Routes.AGENT}/$id") }
+            )
+        }
+        composable("${Routes.AGENT}/{sessionId}") { entry ->
+            AgentScreen(
+                onNavigate = { navController.navigate(it) },
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+                initialSessionId = entry.arguments?.getString("sessionId"),
+                onOpenConversation = { id -> navController.navigate("${Routes.AGENT}/$id") }
             )
         }
         composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }) }
@@ -125,7 +134,7 @@ fun CosmicNavGraph(navController: NavHostController) {
         composable(Routes.SESSIONS) {
             SessionsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenSession = { navController.navigate(Routes.AGENT) }
+                onOpenSession = { id -> navController.navigate("${Routes.AGENT}/$id") }
             )
         }
         composable(Routes.WORKFLOWS) { WorkflowsScreen(onBack = { navController.popBackStack() }) }

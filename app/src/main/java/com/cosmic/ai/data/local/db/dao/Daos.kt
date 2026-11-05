@@ -91,6 +91,9 @@ interface TaskDao {
 
 @Dao
 interface ToolExecutionDao {
+    @Query("SELECT * FROM tool_executions ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<ToolExecutionEntity>>
+
     @Query("SELECT * FROM tool_executions WHERE taskId = :taskId AND callId = :callId")
     suspend fun get(taskId: String, callId: String): ToolExecutionEntity?
 

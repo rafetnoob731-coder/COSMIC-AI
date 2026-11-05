@@ -12,13 +12,19 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.cosmic.ai.ui.theme.CosmicTheme
 import com.cosmic.ai.ui.navigation.CosmicNavGraph
+import com.cosmic.ai.data.local.datastore.AppPreferences
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            CosmicTheme {
+            val preferences = remember { AppPreferences(applicationContext) }
+            val themeMode by preferences.theme.collectAsState(initial = "system")
+            CosmicTheme(mode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     CosmicRoot()
                 }

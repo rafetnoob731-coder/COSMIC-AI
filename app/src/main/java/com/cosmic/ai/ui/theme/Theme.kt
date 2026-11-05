@@ -11,16 +11,16 @@ import androidx.compose.ui.graphics.Color
 private val CosmicDark = darkColorScheme(
     primary = Color(0xFFA78BFA),
     onPrimary = Color(0xFF1E1B4B),
-    secondary = Color(0xFF3B82F6),
+    secondary = Color(0xFF8B8FA8),
     onSecondary = Color(0xFF0F172A),
-    tertiary = Color(0xFF7C3AED),
-    background = Color(0xFF0B1220),
-    onBackground = Color(0xFFE2E8F0),
-    surface = Color(0xFF1E293B),
-    onSurface = Color(0xFFE2E8F0),
-    surfaceVariant = Color(0xFF334155),
-    onSurfaceVariant = Color(0xFF94A3B8),
-    error = Color(0xFFEF4444),
+    tertiary = Color(0xFF8B7BD8),
+    background = Color(0xFF101114),
+    onBackground = Color(0xFFF3F3F5),
+    surface = Color(0xFF202127),
+    onSurface = Color(0xFFF3F3F5),
+    surfaceVariant = Color(0xFF26272E),
+    onSurfaceVariant = Color(0xFF9699A3),
+    error = Color(0xFFF87171),
     onError = Color(0xFFFFFFFF)
 )
 
@@ -30,21 +30,26 @@ private val CosmicLight = lightColorScheme(
     secondary = Color(0xFF2563EB),
     onSecondary = Color(0xFFFFFFFF),
     tertiary = Color(0xFF5B21B6),
-    background = Color(0xFFF8FAFC),
+    background = Color(0xFFF7F7F8),
     onBackground = Color(0xFF0F172A),
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFE2E8F0),
-    onSurfaceVariant = Color(0xFF475569),
-    error = Color(0xFFDC2626),
+    surfaceVariant = Color(0xFFF3F3F5),
+    onSurfaceVariant = Color(0xFF62646D),
+    error = Color(0xFFB42318),
     onError = Color(0xFFFFFFFF)
 )
 
 @Composable
 fun CosmicTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    mode: String = "system",
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (mode.lowercase()) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
     val scheme = if (darkTheme) CosmicDark else CosmicLight
     MaterialTheme(
         colorScheme = scheme,
