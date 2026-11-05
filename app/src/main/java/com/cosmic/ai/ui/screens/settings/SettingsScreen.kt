@@ -12,7 +12,16 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.*
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -20,6 +29,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.cosmic.ai.CosmicApplication
@@ -30,6 +40,7 @@ import com.cosmic.ai.domain.provider.ProviderConfig
 import com.cosmic.ai.domain.provider.ProviderType
 import com.cosmic.ai.domain.provider.ProviderModel
 import com.cosmic.ai.runtime.providers.ProviderFactory
+import com.cosmic.ai.ui.theme.CosmicBackdrop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,59 +48,56 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onAbout: () -> Unit = {}, onNavigate: (String) -> Unit = {}) {
     val context = LocalContext.current
     val db = CosmicApplication.instance.database
     val store = CosmicApplication.instance.secureStore
     val scope = rememberCoroutineScope()
     val providers by db.providerDao().observeAll().collectAsState(initial = emptyList())
-
-    var section by remember { mutableStateOf<Int?>(null) } // Settings landing list, then a focused category
-
+    var section by remember { mutableStateOf<Int?>(null) }
+    val entries = listOf(
+        Triple("AI Providers", "Configure providers and credentials", Icons.Outlined.Cloud) to 0,
+        Triple("Model Management", "Select models and provider defaults", Icons.Outlined.Tune) to 0,
+        Triple("MCP Servers", "Connected tools and protocol servers", Icons.Outlined.Extension) to 1,
+        Triple("Agent Permissions", "Control file, network, and terminal access", Icons.Outlined.Security) to 2,
+        Triple("Appearance", "Theme and interface preferences", Icons.Outlined.Palette) to 3,
+        Triple("Search", "DuckDuckGo Instant Answers", Icons.Outlined.Search) to 4,
+        Triple("Agents", "Specialist roles and available tools", Icons.Outlined.Groups) to 5,
+        Triple("Memory", "Browse persisted session memory", Icons.Outlined.Memory) to 6,
+        Triple("About COSMIC CODEX", "Version, project, and license information", Icons.Outlined.Info) to 7
+    )
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
+            TopAppBar(title = { Text("Settings") }, navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
+            }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent))
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+        Column(Modifier.fillMaxSize().padding(padding)) {
             val selectedSection = section
             if (selectedSection == null) {
-                Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Configure your workspace", style = MaterialTheme.typography.titleMedium)
-                    listOf(
-                        "Providers & Models" to 0,
-                        "Search" to 4,
-                        "MCP Servers" to 1,
-                        "Agent Permissions" to 2,
-                        "Appearance" to 3
-                    ).forEach { (label, target) ->
-                        ListItem(
-                            headlineContent = { Text(label) },
-                            supportingContent = { Text(when (target) {
-                                0 -> "Connect models and manage provider keys"
-                                1 -> "Manage connected tool servers"
-                                2 -> "Control file and terminal capabilities"
-                                3 -> "Theme and interface preferences"
-                                else -> "Manage separately stored credentials"
-                            }) },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
-                            modifier = Modifier.fillMaxWidth().clickable { section = target }
-                        )
-                        HorizontalDivider()
+                CosmicBackdrop(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                        Text("Configure your workspace", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
+                        entries.forEach { (entry, target) ->
+                            ListItem(
+                                headlineContent = { Text(entry.first) },
+                                supportingContent = { Text(entry.second) },
+                                leadingContent = { Icon(entry.third, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    when (target) {
+                                        5 -> onNavigate(com.cosmic.ai.ui.navigation.Routes.AGENTS)
+                                        6 -> onNavigate(com.cosmic.ai.ui.navigation.Routes.MEMORY)
+                                        7 -> onAbout()
+                                        else -> section = target
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .45f))
+                        }
                     }
                 }
             } else {

@@ -4,6 +4,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.cosmic.ai.CosmicApplication
@@ -34,6 +40,10 @@ import com.cosmic.ai.runtime.agent.AgentUiEvent
 import com.cosmic.ai.core.commands.CommandRegistry
 import com.cosmic.ai.core.commands.CosmicCommand
 import com.cosmic.ai.ui.navigation.Routes
+import com.cosmic.ai.ui.theme.CosmicBackdrop
+import com.cosmic.ai.ui.theme.CosmicBottomNavigation
+import com.cosmic.ai.ui.theme.CosmicLogo
+import com.cosmic.ai.ui.theme.CodexPalette
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -64,6 +74,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
     var executionId by remember { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val listState = rememberLazyListState()
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val selectedProvider = providers.firstOrNull { it.id == providerId }
         ?: providers.firstOrNull { it.isDefault }
         ?: providers.firstOrNull()
@@ -103,10 +114,13 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
         }
     }
     LaunchedEffect(sessionId) {
-        if (db.sessionDao().getById(sessionId) == null) {
+        val existing = db.sessionDao().getById(sessionId)
+        if (existing == null) {
             val now = System.currentTimeMillis()
             db.sessionDao().upsert(SessionEntity(sessionId, "New conversation", selectedProvider?.id,
-                selectedProvider?.defaultModel, null, now, now))
+                selectedProvider?.defaultModel, runtime.selectedProjectUri()?.toString(), now, now))
+        } else {
+            runtime.setProject(existing.projectUri?.let(android.net.Uri::parse))
         }
     }
     LaunchedEffect(Unit) {
@@ -211,11 +225,21 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
         }
     ) {
         Scaffold(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
             topBar = {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                     title = {
-                        Column {
-                            Text("CODEX", style = MaterialTheme.typography.titleLarge)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CosmicLogo(Modifier.size(42.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Column {
+                            Text("COSMIC CODEX", style = MaterialTheme.typography.titleSmall)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(Modifier.size(6.dp), shape = RoundedCornerShape(50), color = if (busy) CodexPalette.Cyan else CodexPalette.Green) {}
+                                Spacer(Modifier.width(5.dp))
+                                Text(if (busy) status.substringBefore(" · ") else "Orchestrator Agent", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
                             Box {
                                 TextButton(onClick = { providerMenu = true }, contentPadding = PaddingValues(0.dp)) {
                                     Text(selectedProvider?.let { "${it.name} · ${it.defaultModel}" } ?: "Connect a provider",
@@ -232,6 +256,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                                     if (providers.isEmpty()) DropdownMenuItem(
                                         text = { Text("No providers configured") }, onClick = { providerMenu = false; onSettings() })
                                 }
+                            }
                             }
                         }
                     },
@@ -255,6 +280,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                 )
             },
             bottomBar = {
+                Column {
                 Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
                     .imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -328,7 +354,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                                 executionId = null
                                 scope.launch {
                                     db.sessionDao().upsert(SessionEntity(sessionId, text.take(64), entity.id,
-                                        config.defaultModel, null, System.currentTimeMillis(), System.currentTimeMillis()))
+                                        config.defaultModel, runtime.selectedProjectUri()?.toString(), System.currentTimeMillis(), System.currentTimeMillis()))
                                     busy = true
                                     runtime.run(sessionId, text, config, config.defaultModel, mode)
                                 }
@@ -338,9 +364,11 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                         }
                     }
                 }
-            }
+                if (!keyboardVisible) CosmicBottomNavigation(Routes.AGENT, onNavigate)
+                }
             }
         ) { padding ->
+            CosmicBackdrop(Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (messages.isEmpty() && streaming.isBlank()) item {
@@ -367,8 +395,20 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                         }
                     }
                 }
-                itemsIndexed(messages, key = { index, msg -> "${index}-${msg.role}-${msg.toolCallId.orEmpty()}" }) { _, msg -> MessageBubble(msg) }
-                if (streaming.isNotBlank()) item { MessageBubble(ChatMessage("assistant", streaming)) }
+                itemsIndexed(messages, key = { index, msg -> "${index}-${msg.role}-${msg.toolCallId.orEmpty()}" }) { _, msg ->
+                    AnimatedVisibility(visible = true, enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 12 }) {
+                        MessageBubble(msg)
+                    }
+                }
+                if (busy && streaming.isBlank()) item(key = "typing_indicator") {
+                    AnimatedVisibility(visible = true, enter = fadeIn(tween(160))) { TypingIndicator() }
+                }
+                if (streaming.isNotBlank()) item(key = "streaming_message") {
+                    AnimatedVisibility(visible = true, enter = fadeIn(tween(140))) {
+                        MessageBubble(ChatMessage("assistant", streaming))
+                    }
+                }
+            }
             }
         }
     }
@@ -385,10 +425,10 @@ private fun MessageBubble(msg: ChatMessage) {
     val clipboard = LocalClipboardManager.current
     val parts = remember(msg.content) { msg.content.split("```") }
     val isUser = msg.role == "user"
-    val bg = if (isUser) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background
+    val bg = if (isUser) CodexPalette.Violet.copy(alpha = .76f) else MaterialTheme.colorScheme.surface.copy(alpha = .72f)
     val fg = MaterialTheme.colorScheme.onSurface
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
-        Surface(color = bg, shape = RoundedCornerShape(if (isUser) 20.dp else 10.dp), modifier = Modifier.widthIn(max = 720.dp)) {
+        Surface(color = bg, shape = RoundedCornerShape(if (isUser) 18.dp else 12.dp), modifier = Modifier.widthIn(max = 720.dp), border = if (isUser) null else androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Line.copy(alpha = .7f))) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
                 if (!isUser) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (msg.role == "tool") "TOOL RESULT" else "CODEX", style = MaterialTheme.typography.labelSmall,
@@ -399,16 +439,21 @@ private fun MessageBubble(msg: ChatMessage) {
                 }
                 parts.forEachIndexed { index, segment ->
                     if (index % 2 == 1) {
-                        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        var expanded by remember(msg.content, index) { mutableStateOf(false) }
+                        val code = segment.substringAfter('\n', segment)
+                        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().animateContentSize(tween(180))) {
                             Column(Modifier.padding(10.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(segment.substringBefore('\n').takeIf { it.isNotBlank() } ?: "Code", style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                                    IconButton(onClick = { clipboard.setText(AnnotatedString(segment.substringAfter('\n', segment))) }, modifier = Modifier.size(28.dp)) {
+                                    TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                        Text(if (expanded) "Collapse" else "Expand", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }, modifier = Modifier.size(28.dp)) {
                                         Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code", modifier = Modifier.size(15.dp))
                                     }
                                 }
-                                Text(segment.substringAfter('\n', segment), color = fg, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                                Text(code, maxLines = if (expanded) Int.MAX_VALUE else 12, color = fg, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     } else if (segment.isNotBlank()) {
@@ -418,5 +463,26 @@ private fun MessageBubble(msg: ChatMessage) {
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun TypingIndicator() {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "codex-typing")
+    Row(Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = .3f,
+                targetValue = .95f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = tween(520, delayMillis = index * 130),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                ),
+                label = "typing-dot-$index"
+            )
+            Surface(Modifier.size(6.dp), shape = RoundedCornerShape(50), color = CodexPalette.Cyan.copy(alpha = alpha)) {}
+        }
+        Text("Generating", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

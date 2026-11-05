@@ -35,6 +35,9 @@ class AgentRuntime(
     private val taskLifecycle = TaskLifecycleRepository(db)
     private val tools = ToolRegistry(context)
 
+    fun registeredToolDefinitions(): List<ToolDefinition> = tools.definitions()
+    fun selectedProjectUri(): Uri? = projectUri
+
     private val _events = MutableSharedFlow<AgentUiEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<AgentUiEvent> = _events.asSharedFlow()
 

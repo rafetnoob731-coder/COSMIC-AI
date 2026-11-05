@@ -2,18 +2,23 @@
 package com.cosmic.ai.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.cosmic.ai.data.local.datastore.AppPreferences
 import com.cosmic.ai.ui.screens.agent.AgentScreen
 import com.cosmic.ai.ui.screens.agents.AgentsScreen
 import com.cosmic.ai.ui.screens.background.BackgroundTasksScreen
 import com.cosmic.ai.ui.screens.home.HomeScreen
+import com.cosmic.ai.ui.screens.home.AboutScreen
+import com.cosmic.ai.ui.screens.welcome.SplashScreen
 import com.cosmic.ai.ui.screens.mcp.McpScreen
 import com.cosmic.ai.ui.screens.memory.MemoryScreen
 import com.cosmic.ai.ui.screens.projects.ProjectsScreen
@@ -34,6 +39,8 @@ import com.cosmic.ai.ui.screens.workflows.WorkflowsScreen
 
 object Routes {
     const val WELCOME = "welcome"
+    const val SPLASH = "splash"
+    const val ABOUT = "about"
     const val HOME = "home"
     const val AGENT = "agent"
     const val PROJECTS = "projects"
@@ -53,12 +60,8 @@ object Routes {
 @Composable
 fun CosmicNavGraph(navController: NavHostController) {
     val context = LocalContext.current
-    val prefs = AppPreferences(context)
-    val firstLaunch by prefs.isFirstLaunch.collectAsState(initial = true)
-    val start = if (firstLaunch) Routes.WELCOME else Routes.HOME
     var updateEval by remember { mutableStateOf<UpdateEvaluation?>(null) }
     var updateChecked by remember { mutableStateOf(false) }
-    var allowContinue by remember { mutableStateOf(false) }
 
     // Startup update check — failure does not crash
     LaunchedEffect(Unit) {
@@ -72,22 +75,35 @@ fun CosmicNavGraph(navController: NavHostController) {
         }
     }
 
-    NavHost(navController = navController, startDestination = if (updateChecked && (updateEval?.decision == UpdateDecision.MANDATORY || updateEval?.decision == UpdateDecision.OPTIONAL) && !allowContinue) Routes.UPDATE else start) {
-        
+    NavHost(
+        navController = navController,
+        startDestination = Routes.SPLASH,
+        enterTransition = { fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 24 } },
+        exitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { -it / 32 } },
+        popEnterTransition = { fadeIn(tween(180)) + slideInHorizontally(tween(180)) { -it / 32 } },
+        popExitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 24 } }
+    ) {
+        composable(Routes.SPLASH) {
+            SplashScreen()
+            LaunchedEffect(updateChecked) {
+                if (updateChecked) {
+                    val destination = if (updateEval?.decision in setOf(UpdateDecision.MANDATORY, UpdateDecision.OPTIONAL)) Routes.UPDATE else Routes.HOME
+                    navController.navigate(destination) { popUpTo(Routes.SPLASH) { inclusive = true } }
+                }
+            }
+        }
         composable(Routes.UPDATE) {
             val ev = updateEval
             if (ev != null) {
                 UpdateScreen(
                     evaluation = ev,
                     onLater = {
-                        allowContinue = true
-                        navController.navigate(if (firstLaunch) Routes.WELCOME else Routes.HOME) {
+                        navController.navigate(Routes.HOME) {
                             popUpTo(Routes.UPDATE) { inclusive = true }
                         }
                     },
                     onUpdatedOrSkipNetwork = {
-                        allowContinue = true
-                        navController.navigate(if (firstLaunch) Routes.WELCOME else Routes.HOME) {
+                        navController.navigate(Routes.HOME) {
                             popUpTo(Routes.UPDATE) { inclusive = true }
                         }
                     }
@@ -96,20 +112,15 @@ fun CosmicNavGraph(navController: NavHostController) {
         }
         composable(Routes.WELCOME) {
             WelcomeScreen(
-                onGetStarted = {
-                    prefs.setFirstLaunchComplete()
-                    navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.WELCOME) { inclusive = true }
-                    }
-                },
+                onGetStarted = { navController.navigate(Routes.HOME) { popUpTo(Routes.WELCOME) { inclusive = true } } },
                 onSettings = { navController.navigate(Routes.SETTINGS) }
             )
         }
-        // The conversation is the workspace landing screen; navigation to tools stays in its drawer.
         composable(Routes.HOME) {
-            AgentScreen(
+            HomeScreen(
                 onNavigate = { navController.navigate(it) },
-                onSettings = { navController.navigate(Routes.SETTINGS) }
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenConversation = { id -> navController.navigate("${Routes.AGENT}/$id") }
             )
         }
         composable(Routes.AGENT) {
@@ -127,10 +138,10 @@ fun CosmicNavGraph(navController: NavHostController) {
                 onOpenConversation = { id -> navController.navigate("${Routes.AGENT}/$id") }
             )
         }
-        composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.TERMINAL) { TerminalScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.AGENTS) { AgentsScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.TASKS) { TasksScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.AGENTS) { AgentsScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
+        composable(Routes.TASKS) { TasksScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.SESSIONS) {
             SessionsScreen(
                 onBack = { navController.popBackStack() },
@@ -138,10 +149,11 @@ fun CosmicNavGraph(navController: NavHostController) {
             )
         }
         composable(Routes.WORKFLOWS) { WorkflowsScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.MCP) { McpScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.MCP) { McpScreen(onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SETTINGS) }) }
         composable(Routes.MEMORY) { MemoryScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.BACKGROUND) { BackgroundTasksScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.SETTINGS) { SettingsScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.SETTINGS) { SettingsScreen(onBack = { navController.popBackStack() }, onAbout = { navController.navigate(Routes.ABOUT) }, onNavigate = { navController.navigate(it) }) }
+        composable(Routes.ABOUT) { AboutScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.BUGS) {
             BugCenterScreen(onBack = { navController.popBackStack() })
         }

@@ -23,6 +23,7 @@ class AppPreferences(private val context: Context) {
         val FIRST_LAUNCH = booleanPreferencesKey("first_launch")
         val THEME = stringPreferencesKey("theme")
         val DEFAULT_PROVIDER = stringPreferencesKey("default_provider")
+        val PROJECT_URI = stringPreferencesKey("current_project_uri")
         val ALLOW_FILE_READ = booleanPreferencesKey("allow_file_read")
         val ALLOW_FILE_WRITE = booleanPreferencesKey("allow_file_write")
         val ALLOW_TERMINAL = booleanPreferencesKey("allow_terminal")
@@ -39,6 +40,13 @@ class AppPreferences(private val context: Context) {
     }
 
     val theme: Flow<String> = context.dataStore.data.map { it[Keys.THEME] ?: "system" }
+    val currentProjectUri: Flow<String?> = context.dataStore.data.map { it[Keys.PROJECT_URI] }
+
+    suspend fun setCurrentProjectUri(value: String?) {
+        context.dataStore.edit {
+            if (value == null) it.remove(Keys.PROJECT_URI) else it[Keys.PROJECT_URI] = value
+        }
+    }
 
     suspend fun setTheme(value: String) {
         context.dataStore.edit { it[Keys.THEME] = value }

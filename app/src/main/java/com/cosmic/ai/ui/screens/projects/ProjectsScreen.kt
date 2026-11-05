@@ -19,9 +19,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import com.cosmic.ai.CosmicApplication
+import com.cosmic.ai.data.local.datastore.AppPreferences
 import com.cosmic.ai.core.project.ProjectTechnologyDetector
 import com.cosmic.ai.core.project.TechnologyFinding
 import com.cosmic.ai.runtime.project.AndroidRuntimeProbe
+import com.cosmic.ai.ui.navigation.Routes
+import com.cosmic.ai.ui.theme.CosmicBackdrop
+import com.cosmic.ai.ui.theme.CosmicBottomNavigation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,41 +33,62 @@ import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(onBack: () -> Unit) {
+fun ProjectsScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val preferences = remember { AppPreferences(context) }
+    val savedProject by preferences.currentProjectUri.collectAsState(initial = null)
     var projectUri by remember { mutableStateOf<Uri?>(null) }
     var status by remember { mutableStateOf("Open a project folder to inspect its structure and technologies.") }
     var findings by remember { mutableStateOf<List<TechnologyFinding>>(emptyList()) }
     var runtimeStatus by remember { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
+    var fileCount by remember { mutableIntStateOf(0) }
     var scanning by remember { mutableStateOf(false) }
+    fun inspect(uri: Uri) {
+        projectUri = uri
+        CosmicApplication.instance.agentRuntime.setProject(uri)
+        scanning = true
+        status = "Inspecting permitted project files…"
+        scope.launch {
+            preferences.setCurrentProjectUri(uri.toString())
+            val scan = withContext(Dispatchers.IO) { inspectProject(context, uri) }
+            findings = scan.findings
+            fileCount = scan.fileCount
+            status = if (scan.findings.isEmpty()) "Folder is accessible; no recognized project languages or manifests found." else "${scan.fileCount} files inspected · project technologies detected from manifests and source files."
+            val languageNames = scan.findings.filter { it.kind == TechnologyFinding.Kind.LANGUAGE }.map { it.name }
+            runtimeStatus = withContext(Dispatchers.IO) {
+                val probe = AndroidRuntimeProbe()
+                buildMap {
+                    for (language in languageNames) put(language, probe.availableExecutables(language))
+                }
+            }
+            scanning = false
+        }
+    }
+    LaunchedEffect(savedProject) {
+        val value = savedProject
+        if (value != null && projectUri == null) {
+            val uri = Uri.parse(value)
+            val permission = context.contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri && it.isReadPermission }
+            if (permission == null) {
+                status = "Previously selected folder access was revoked. Select the project folder again."
+            } else inspect(uri)
+        }
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             try { context.contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
-            projectUri = uri
-            CosmicApplication.instance.agentRuntime.setProject(uri)
-            scanning = true
-            status = "Inspecting permitted project files…"
-            scope.launch {
-                val scan = withContext(Dispatchers.IO) { inspectProject(context, uri) }
-                findings = scan.findings
-                status = if (scan.findings.isEmpty()) "Folder is accessible; no recognized project languages or manifests found." else "${scan.fileCount} files inspected · detection is based on project files, not assumptions."
-                val languageNames = scan.findings.filter { it.kind == TechnologyFinding.Kind.LANGUAGE }.map { it.name }
-                val probe = AndroidRuntimeProbe()
-                val detectedRuntimes = mutableMapOf<String, Set<String>>()
-                for (language in languageNames) detectedRuntimes[language] = probe.availableExecutables(language)
-                runtimeStatus = detectedRuntimes
-                scanning = false
-            }
+            inspect(uri)
         }
     }
 
-    Scaffold(topBar = {
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, bottomBar = { CosmicBottomNavigation(Routes.PROJECTS, onNavigate) }, topBar = {
         TopAppBar(title = { Text("Projects") }, navigationIcon = {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
         })
     }) { padding ->
+        CosmicBackdrop(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface) {
@@ -73,6 +98,7 @@ fun ProjectsScreen(onBack: () -> Unit) {
                         Column(Modifier.weight(1f)) {
                             Text(projectUri?.lastPathSegment?.substringAfterLast(':') ?: "Project workspace", style = MaterialTheme.typography.titleLarge)
                             Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (fileCount > 0) Text("$fileCount files · ${findings.count { it.kind == TechnologyFinding.Kind.LANGUAGE }} languages", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -104,6 +130,7 @@ fun ProjectsScreen(onBack: () -> Unit) {
                 Text("Execution environment", style = MaterialTheme.typography.titleMedium)
                 Text("Runtime checks only inspect executables visible to this Android app. A detected language does not imply that a compiler, dependency manager, container, or remote runner is available.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
         }
     }
 }
