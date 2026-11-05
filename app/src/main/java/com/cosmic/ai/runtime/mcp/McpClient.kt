@@ -6,6 +6,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -189,7 +190,7 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
 }
 
 class HttpMcpSession(private val config: McpServerConfig) : McpSession {
-    private val endpoint = okhttp3.HttpUrl.get(config.url ?: error("HTTP transport requires url"))
+    private val endpoint = (config.url ?: error("HTTP transport requires url")).toHttpUrl()
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
