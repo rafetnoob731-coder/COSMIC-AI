@@ -67,7 +67,7 @@ class ProviderAdaptersTest {
         server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(
             """{"models":[{"name":"models/gemini-test","displayName":"Gemini Test","supportedGenerationMethods":["generateContent"]},{"name":"models/embedding-test","supportedGenerationMethods":["embedContent"]}]}"""
         ))
-        val result = GeminiProvider().discoverModels(config(""), "gemini-secret")
+        val result = GeminiProvider().discoverModels(config("/v1beta"), "gemini-secret")
         assertEquals(listOf("gemini-test"), result.getOrThrow().map { it.id })
         val request = server.takeRequest()
         assertEquals("/v1beta/models", request.path)

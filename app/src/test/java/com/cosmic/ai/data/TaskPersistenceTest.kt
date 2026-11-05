@@ -1,5 +1,6 @@
 package com.cosmic.ai.data
 
+import android.app.Application
 import androidx.room.Room
 import com.cosmic.ai.data.local.db.CosmicDatabase
 import com.cosmic.ai.data.local.db.entity.TaskEntity
@@ -11,11 +12,14 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.RuntimeEnvironment
 import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
+@Config(application = TaskPersistenceTest.TestApplication::class, sdk = [35])
 class TaskPersistenceTest {
+    class TestApplication : Application()
     private lateinit var databaseName: String
     private lateinit var database: CosmicDatabase
 

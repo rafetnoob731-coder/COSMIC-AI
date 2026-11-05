@@ -28,7 +28,7 @@ class VersionComparatorTest {
     )
 
     @Test fun upToDate() {
-        val e = VersionComparator.evaluate(m(code = 10), 10, "0.1", "com.cosmic.ai")
+        val e = VersionComparator.evaluate(m(code = 10, min = 0), 10, "0.1", "com.cosmic.ai")
         assertEquals(UpdateDecision.UP_TO_DATE, e.decision)
     }
 

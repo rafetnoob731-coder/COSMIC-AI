@@ -242,8 +242,19 @@ class HttpMcpSession(private val config: McpServerConfig) : McpSession {
                 return Result.failure(IllegalArgumentException("MCP tool arguments must be a JSON object"))
             }
             val resp = rpc("tools/call", JSONObject().put("name", name).put("arguments", args))
-            if (resp.has("error")) Result.failure(Exception(resp.getJSONObject("error").optString("message")))
-            else Result.success(resp.optJSONObject("result")?.toString() ?: "{}")
+            if (resp.has("error")) {
+                Result.failure(Exception(resp.getJSONObject("error").optString("message")))
+            } else {
+                val result = resp.optJSONObject("result") ?: JSONObject()
+                val content = result.optJSONArray("content")
+                val text = buildString {
+                    if (content != null) for (index in 0 until content.length()) {
+                        val block = content.optJSONObject(index) ?: continue
+                        if (block.optString("type") == "text") append(block.optString("text"))
+                    }
+                }
+                Result.success(text.ifBlank { result.toString() })
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

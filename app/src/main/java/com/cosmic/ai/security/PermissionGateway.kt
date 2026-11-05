@@ -148,7 +148,7 @@ class PermissionGateway(
                 id = "aud_${System.currentTimeMillis()}_${audit.size}",
                 level = level,
                 action = action,
-                detail = detail,
+                detail = SensitiveTextRedactor.redact(detail).take(500),
                 decision = decision
             )
         )
