@@ -69,6 +69,9 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      - name: Build parallel-install device verification APK
+        run: ./gradlew :app:assembleDeviceTest --stacktrace
+
       - name: Verify debug APK archive and signature
         run: |
           APK='app/build/outputs/apk/debug/app-debug.apk'
@@ -86,6 +89,15 @@ jobs:
           retention-days: 14
           # APKs are already compressed ZIPs; avoid a second DEFLATE layer and
           # reduce corruption/parser issues in third-party artifact downloaders.
+          compression-level: 0
+
+      - name: Upload device verification APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmic-codex-device-test-apk-${{ github.sha }}
+          path: app/build/outputs/apk/deviceTest/*.apk
+          if-no-files-found: error
+          retention-days: 14
           compression-level: 0
 
       - name: Upload build, test, and lint reports

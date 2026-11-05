@@ -33,6 +33,12 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
         }
+        create("deviceTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".codexpreview"
+            versionNameSuffix = "-codexpreview"
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     compileOptions {
