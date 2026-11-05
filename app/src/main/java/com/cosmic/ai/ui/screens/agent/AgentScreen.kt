@@ -366,6 +366,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                 }
                 if (!keyboardVisible) CosmicBottomNavigation(Routes.AGENT, onNavigate)
                 }
+                }
             }
         ) { padding ->
             CosmicBackdrop(Modifier.fillMaxSize()) {
