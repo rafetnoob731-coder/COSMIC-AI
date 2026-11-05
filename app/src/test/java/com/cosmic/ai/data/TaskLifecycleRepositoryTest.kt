@@ -49,6 +49,7 @@ class TaskLifecycleRepositoryTest {
         assertThrows(IllegalArgumentException::class.java) {
             runBlocking { lifecycle.transition("task", TaskStatus.QUEUED, "invalid") }
         }
+        Unit
     }
 
     @Test fun interruptedTaskIsRecoverableAndRunningToolIsNeverReplayed() = runBlocking {
