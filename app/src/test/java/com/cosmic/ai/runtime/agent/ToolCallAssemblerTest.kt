@@ -11,7 +11,7 @@ class ToolCallAssemblerTest {
 
     @Test fun reconstructsMultipleInterleavedCallsByIndexAndPreservesIds() {
         val assembler = ToolCallAssembler()
-        assembler.append(1, "call_b", "read_", "{\"path\":\"b\"}")
+        assembler.append(1, "call_b", "read_file", "{\"path\":\"b\"}")
         assembler.append(0, "call_a", "read_file", "{\"path\":")
         assembler.append(0, null, null, "\"a\"}")
         val calls = assembler.finish(listOf(definition))
