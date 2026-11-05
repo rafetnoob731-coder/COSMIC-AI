@@ -33,9 +33,7 @@ class AgentRuntime(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val taskLifecycle = TaskLifecycleRepository(db)
-    private val tools = ToolRegistry(context, searchApiKeyReader = {
-        apiKeyReader(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)
-    })
+    private val tools = ToolRegistry(context)
 
     private val _events = MutableSharedFlow<AgentUiEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<AgentUiEvent> = _events.asSharedFlow()
@@ -519,8 +517,8 @@ class AgentRuntime(
 
     private fun buildSystemPrompt(mode: AgentMode, hasProject: Boolean): String {
         val base = """
-            You are COSMIC AI, a precise autonomous engineering assistant running on Android.
-            For current facts, unfamiliar APIs, libraries, or technical documentation, use brave_web_search and cite its returned URLs. Never invent search results.
+            You are COSMIC CODEX, a precise autonomous engineering assistant running on Android.
+            DuckDuckGo Instant Answers can provide topic summaries and related-topic citations, but it is not a full organic web search API. Use duckduckgo_instant_answer only when useful, cite returned URLs, and clearly state when it provides no result. Never invent search results.
             Prefer tools over speculation. Never invent file contents or command results.
             Keep responses concise and technical. When editing, prefer small targeted changes.
         """.trimIndent()

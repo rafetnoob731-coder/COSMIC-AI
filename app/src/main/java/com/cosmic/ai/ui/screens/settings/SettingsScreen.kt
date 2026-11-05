@@ -4,6 +4,7 @@ package com.cosmic.ai.ui.screens.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,6 +14,9 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +31,8 @@ import com.cosmic.ai.domain.provider.ProviderType
 import com.cosmic.ai.domain.provider.ProviderModel
 import com.cosmic.ai.runtime.providers.ProviderFactory
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +72,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Text("Configure your workspace", style = MaterialTheme.typography.titleMedium)
                     listOf(
                         "Providers & Models" to 0,
-                        "API Credentials" to 4,
+                        "Search" to 4,
                         "MCP Servers" to 1,
                         "Agent Permissions" to 2,
                         "Appearance" to 3
@@ -98,7 +104,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         1 -> McpSection()
                         2 -> PermissionsSection()
                         3 -> AppearanceSection()
-                        4 -> SearchCredentialsSection(store)
+                        4 -> DuckDuckGoSearchSection()
                     }
                 }
             }
@@ -113,8 +119,14 @@ private fun ProvidersSection(
     db: com.cosmic.ai.data.local.db.CosmicDatabase,
     store: com.cosmic.ai.data.local.keystore.SecureStore
 ) {
+    val presets = remember { ProviderFactory.presets() }
+    val configuration = LocalConfiguration.current
+    val dialogHeight = (configuration.screenHeightDp - 64).coerceIn(220, 600).dp
+    val maskedApiKeys by produceState(initialValue = emptyMap<String, String>(), providers) {
+        value = withContext(Dispatchers.IO) { providers.associate { it.id to runCatching { store.mask(it.apiKeyAlias) }.getOrDefault("Unavailable") } }
+    }
     var showAdd by remember { mutableStateOf(false) }
-    var selectedPreset by remember { mutableStateOf(ProviderFactory.presets().first()) }
+    var selectedPreset by remember(presets) { mutableStateOf(presets.first()) }
     var name by remember { mutableStateOf("") }
     var baseUrl by remember { mutableStateOf(selectedPreset.baseUrl) }
     var model by remember { mutableStateOf(selectedPreset.defaultModel) }
@@ -125,8 +137,8 @@ private fun ProvidersSection(
     var discoveredModels by remember { mutableStateOf<List<ProviderModel>>(emptyList()) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var modelFilter by remember { mutableStateOf("") }
-    val visibleModels = discoveredModels.filter {
-        it.id.contains(modelFilter, ignoreCase = true) || it.displayName.contains(modelFilter, ignoreCase = true)
+    val visibleModels = remember(discoveredModels, modelFilter) {
+        discoveredModels.filter { it.id.contains(modelFilter, ignoreCase = true) || it.displayName.contains(modelFilter, ignoreCase = true) }
     }
 
     Column(
@@ -150,18 +162,18 @@ private fun ProvidersSection(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(p.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         if (p.isDefault) {
-                            AssistChip(onClick = {}, label = { Text("Default") })
+                            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) { Text("Default", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall) }
                         }
                     }
                     Text(p.type, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text(p.baseUrl, style = MaterialTheme.typography.bodySmall)
                     Text("Model · ${p.defaultModel}", style = MaterialTheme.typography.bodySmall)
-                    Text("Key · ${store.mask(p.apiKeyAlias)}", style = MaterialTheme.typography.bodySmall)
+                    Text("Key · ${maskedApiKeys[p.id] ?: "Loading securely…"}", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             scope.launch {
+                                withContext(Dispatchers.IO) { store.removeSecret(p.apiKeyAlias) }
                                 db.providerDao().delete(p.id)
-                                store.removeSecret(p.apiKeyAlias)
                             }
                         }) {
                             Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -179,19 +191,20 @@ private fun ProvidersSection(
 
         if (showAdd) {
             Text("Preset", style = MaterialTheme.typography.labelLarge)
-            ProviderFactory.presets().forEach { preset ->
-                FilterChip(
-                    selected = selectedPreset.label == preset.label,
-                    onClick = {
-                        selectedPreset = preset
-                        baseUrl = preset.baseUrl
-                        model = preset.defaultModel
-                        name = preset.label
-                        discoveredModels = emptyList()
-                    },
-                    label = { Text(preset.label) },
-                    modifier = Modifier.padding(end = 4.dp, bottom = 4.dp)
-                )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                items(presets, key = { it.label }) { preset ->
+                    FilterChip(
+                        selected = selectedPreset.label == preset.label,
+                        onClick = {
+                            selectedPreset = preset
+                            baseUrl = preset.baseUrl
+                            model = preset.defaultModel
+                            name = preset.label
+                            discoveredModels = emptyList()
+                        },
+                        label = { Text(preset.label) }
+                    )
+                }
             }
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Display name") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth())
@@ -226,20 +239,42 @@ private fun ProvidersSection(
                     TextButton(enabled = discoveredModels.isNotEmpty(), onClick = { modelMenuExpanded = true }) {
                         Text("Choose (${discoveredModels.size})")
                     }
-                    DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                        Column(Modifier.widthIn(min = 260.dp, max = 360.dp).heightIn(max = 420.dp).padding(8.dp)) {
-                            OutlinedTextField(
-                                value = modelFilter,
-                                onValueChange = { modelFilter = it },
-                                label = { Text("Filter models") },
-                                singleLine = true
-                            )
-                            androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
-                                items(visibleModels.take(500)) { discovered ->
-                                    DropdownMenuItem(
-                                        text = { Text(discovered.displayName) },
-                                        onClick = { model = discovered.id; modelMenuExpanded = false }
+                    if (modelMenuExpanded) {
+                        Dialog(
+                            onDismissRequest = { modelMenuExpanded = false },
+                            properties = DialogProperties(usePlatformDefaultWidth = false)
+                        ) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp).height(dialogHeight),
+                                shape = MaterialTheme.shapes.extraLarge,
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 6.dp
+                            ) {
+                                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Select a model", style = MaterialTheme.typography.titleLarge)
+                                    OutlinedTextField(
+                                        value = modelFilter,
+                                        onValueChange = { modelFilter = it },
+                                        label = { Text("Filter ${discoveredModels.size} discovered models") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
                                     )
+                                    androidx.compose.foundation.lazy.LazyColumn(
+                                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                    ) {
+                                        items(visibleModels.take(500), key = { it.id }) { discovered ->
+                                            ListItem(
+                                                headlineContent = { Text(discovered.displayName) },
+                                                supportingContent = { if (discovered.displayName != discovered.id) Text(discovered.id) },
+                                                modifier = Modifier.fillMaxWidth().clickable {
+                                                    model = discovered.id
+                                                    modelMenuExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                    TextButton(onClick = { modelMenuExpanded = false }, modifier = Modifier.align(Alignment.End)) { Text("Close") }
                                 }
                             }
                         }
@@ -262,7 +297,7 @@ private fun ProvidersSection(
                                 apiKeyAlias = "tmp",
                                 defaultModel = model
                             )
-                            val result = adapter.testConnection(cfg, apiKey)
+                            val result = withContext(Dispatchers.IO) { adapter.testConnection(cfg, apiKey) }
                             testMsg = result.fold({ "Connection OK · $it" }, { "Failed · ${it.message}" })
                             testing = false
                         }
@@ -276,7 +311,7 @@ private fun ProvidersSection(
                     scope.launch {
                         val id = UUID.randomUUID().toString()
                         val alias = "provider_$id"
-                        store.putSecret(alias, apiKey)
+                        withContext(Dispatchers.IO) { store.putSecret(alias, apiKey) }
                         db.providerDao().upsert(
                             ProviderEntity(
                                 id = id,
@@ -303,34 +338,22 @@ private fun ProvidersSection(
 
 
 @Composable
-private fun SearchCredentialsSection(store: com.cosmic.ai.data.local.keystore.SecureStore) {
-    var key by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
-    val hasKey = remember { mutableStateOf(store.hasSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)) }
+private fun DuckDuckGoSearchSection() {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Brave Search", style = MaterialTheme.typography.titleMedium)
-        Text("Dedicated web research credential. Stored separately from model-provider keys using Android encrypted storage.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(if (hasKey.value) "Credential configured · ${store.mask(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)}" else "No Brave key configured")
-        OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Brave Search API key") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = key.isNotBlank(), onClick = {
-                store.putSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS, key.trim())
-                key = ""
-                hasKey.value = true
-                message = "Brave Search credential saved securely."
-            }) { Text("Save key") }
-            OutlinedButton(enabled = hasKey.value, onClick = {
-                store.removeSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)
-                hasKey.value = false
-                message = "Brave Search credential removed."
-            }) { Text("Remove") }
+        Text("DuckDuckGo Instant Answers", style = MaterialTheme.typography.titleMedium)
+        Text("No API key is required. COSMIC queries DuckDuckGo's documented Instant Answer API over HTTPS and returns only source URLs included in its response.")
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+            Text(
+                "This API provides topic summaries, definitions, and related-topic answers. It does not provide a complete list of organic web search results. Queries may return no results; COSMIC CODEX does not silently substitute another search engine.",
+                modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
+        Text("Existing Brave credentials, if any, are no longer read by COSMIC CODEX. They remain in encrypted storage so this migration does not silently delete user data.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -430,6 +453,7 @@ private fun PermissionsSection() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {

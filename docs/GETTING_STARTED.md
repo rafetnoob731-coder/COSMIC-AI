@@ -4,13 +4,13 @@
 
 Open **Settings → Providers**. Add a provider preset or enter a compatible custom API endpoint. Supply the model identifier and credentials required by that service, then use **Test** before saving. API credentials are stored in encrypted app storage; they are not included in requests to unrelated services.
 
-COSMIC AI currently has distinct request adapters for OpenAI-compatible APIs, Anthropic Messages, and Google Gemini. OpenRouter, DeepSeek, Ollama, and custom endpoints use the OpenAI-compatible adapter. Compatibility depends on the provider's supported API features and model; tool calling and streaming are not uniform across services.
+COSMIC CODEX currently has distinct request adapters for OpenAI-compatible APIs, Anthropic Messages, and Google Gemini. OpenRouter, DeepSeek, Ollama, and custom endpoints use the OpenAI-compatible adapter. Compatibility depends on the provider's supported API features and model; tool calling and streaming are not uniform across services.
 
 See [Provider and MCP Resources](PROVIDER_AND_MCP_RESOURCES.md) for setup links and compatibility notes.
 
 ## 2. Open a project
 
-Go to **Projects → Open Project Folder** and select a folder using Android's system folder picker. Android grants access to the selected tree. COSMIC AI cannot access files outside granted locations. Keep a backup or use version control before approving edits.
+Go to **Projects → Open Project Folder** and select a folder using Android's system folder picker. Android grants access to the selected tree. COSMIC CODEX cannot access files outside granted locations. Keep a backup or use version control before approving edits.
 
 ## 3. Work with the agent
 

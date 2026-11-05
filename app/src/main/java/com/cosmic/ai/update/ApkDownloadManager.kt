@@ -26,7 +26,7 @@ class ApkDownloadManager(private val context: Context) {
 
     fun download(url: String, fileName: String = "cosmic-ai-update.apk"): Flow<DownloadProgress> = flow {
         val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("COSMIC AI Update")
+            .setTitle("COSMIC CODEX Update")
             .setDescription("Downloading release")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)

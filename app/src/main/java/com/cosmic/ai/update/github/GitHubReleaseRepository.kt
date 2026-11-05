@@ -129,7 +129,7 @@ class GitHubReleaseRepository(
                 versionCode = versionCode,
                 minimumSupportedVersion = minSupported,
                 updateRequired = mandatory,
-                releaseName = root.optString("name", "COSMIC AI $tag"),
+                releaseName = root.optString("name", "COSMIC CODEX $tag"),
                 releaseNotes = notes,
                 downloadUrl = apkUrl ?: "",
                 sha256 = sha.lowercase(),

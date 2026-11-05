@@ -19,7 +19,7 @@ object AgentTaskNotification {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CosmicApplication.CHANNEL_AGENT)
             .setSmallIcon(R.drawable.ic_cosmic_notification)
-            .setContentTitle("COSMIC AI task running")
+            .setContentTitle("COSMIC CODEX task running")
             .setContentText(progress.take(120))
             .setContentIntent(open)
             .setOnlyAlertOnce(true)

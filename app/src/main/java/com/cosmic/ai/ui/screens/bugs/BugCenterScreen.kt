@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -27,7 +29,7 @@ fun BugCenterScreen(
     val context = LocalContext.current
     val repo = remember { BugRepository(context) }
     val bugs by repo.bugs.collectAsState()
-    var tab by remember {
+    var tab by rememberSaveable {
         mutableStateOf(
             when (initialTab) {
                 "new" -> 1
@@ -36,6 +38,11 @@ fun BugCenterScreen(
             }
         )
     }
+
+    val dashboardScroll = rememberScrollState()
+    val reportScroll = rememberScrollState()
+    val reportsListState = rememberLazyListState()
+    val helpScroll = rememberScrollState()
 
     Scaffold(
         topBar = {
@@ -50,27 +57,27 @@ fun BugCenterScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = tab) {
+            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Dashboard") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Report") })
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("My Reports") })
                 Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Help") })
             }
             when (tab) {
-                0 -> Dashboard(bugs)
-                1 -> ReportForm(repo) { tab = 2 }
-                2 -> MyReports(bugs)
-                3 -> HelpTab()
+                0 -> Dashboard(bugs, dashboardScroll)
+                1 -> ReportForm(repo, reportScroll) { tab = 2 }
+                2 -> MyReports(bugs, reportsListState)
+                3 -> HelpTab(helpScroll)
             }
         }
     }
 }
 
 @Composable
-private fun Dashboard(bugs: List<BugReport>) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun Dashboard(bugs: List<BugReport>, scrollState: androidx.compose.foundation.ScrollState) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Outlined.BugReport, contentDescription = null, modifier = Modifier.size(40.dp))
-        Text("COSMIC Bug Center", style = MaterialTheme.typography.titleLarge)
+        Text("COSMIC CODEX Bug Center", style = MaterialTheme.typography.titleLarge)
         Text(
             "Report issues in the app, agents, providers, MCP, filesystem, or terminal. Reports are stored on-device. Configure a remote API to sync with developers.",
             style = MaterialTheme.typography.bodyMedium,
@@ -88,7 +95,7 @@ private fun Dashboard(bugs: List<BugReport>) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReportForm(repo: BugRepository, onSubmitted: () -> Unit) {
+private fun ReportForm(repo: BugRepository, scrollState: androidx.compose.foundation.ScrollState, onSubmitted: () -> Unit) {
     val context = LocalContext.current
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -108,7 +115,7 @@ private fun ReportForm(repo: BugRepository, onSubmitted: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -167,14 +174,16 @@ private fun ReportForm(repo: BugRepository, onSubmitted: () -> Unit) {
 }
 
 @Composable
-private fun MyReports(bugs: List<BugReport>) {
+private fun MyReports(bugs: List<BugReport>, listState: androidx.compose.foundation.lazy.LazyListState) {
     if (bugs.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        Box(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
             Text("No reports yet. Use the Report tab or type /bugs new in chat.")
         }
         return
     }
     LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -192,8 +201,8 @@ private fun MyReports(bugs: List<BugReport>) {
 }
 
 @Composable
-private fun HelpTab() {
-    Column(modifier = Modifier.padding(16.dp)) {
+private fun HelpTab(scrollState: androidx.compose.foundation.ScrollState) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp)) {
         Text(CommandRegistry.bugsHelpText(), style = MaterialTheme.typography.bodyLarge)
     }
 }

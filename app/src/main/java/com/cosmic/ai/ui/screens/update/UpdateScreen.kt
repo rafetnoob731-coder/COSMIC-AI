@@ -69,9 +69,9 @@ fun UpdateScreen(
             Spacer(Modifier.height(8.dp))
             Text(
                 if (mandatory)
-                    "A new version of COSMIC AI is required to continue using this application."
+                    "A new version of COSMIC CODEX is required to continue using this application."
                 else
-                    "A newer version of COSMIC AI is available.",
+                    "A newer version of COSMIC CODEX is available.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

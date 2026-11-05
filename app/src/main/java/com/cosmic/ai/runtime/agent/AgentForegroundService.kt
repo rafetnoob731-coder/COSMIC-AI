@@ -26,7 +26,7 @@ class AgentForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return NotificationCompat.Builder(this, CosmicApplication.CHANNEL_AGENT)
-            .setContentTitle("COSMIC AI")
+            .setContentTitle("COSMIC CODEX")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pi)

@@ -64,7 +64,7 @@ fun BackgroundTasksScreen(onBack: () -> Unit) {
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                                 Spacer(Modifier.width(6.dp))
-                                Text("${tool.toolName} has an unknown outcome. COSMIC will not replay it automatically.",
+                                Text("${tool.toolName} has an unknown outcome. COSMIC CODEX will not replay it automatically.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                         }

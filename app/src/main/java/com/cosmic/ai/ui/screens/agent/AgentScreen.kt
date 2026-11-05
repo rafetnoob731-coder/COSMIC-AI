@@ -146,7 +146,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                     Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("COSMIC", style = MaterialTheme.typography.titleLarge)
+                        Text("CODEX", style = MaterialTheme.typography.titleLarge)
                         Text("AI workspace", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -215,7 +215,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                 TopAppBar(
                     title = {
                         Column {
-                            Text("COSMIC", style = MaterialTheme.typography.titleLarge)
+                            Text("CODEX", style = MaterialTheme.typography.titleLarge)
                             Box {
                                 TextButton(onClick = { providerMenu = true }, contentPadding = PaddingValues(0.dp)) {
                                     Text(selectedProvider?.let { "${it.name} · ${it.defaultModel}" } ?: "Connect a provider",
@@ -286,7 +286,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                             Icon(Icons.Outlined.AttachFile, contentDescription = "Attach text or source file")
                         }
                         OutlinedTextField(value = input, onValueChange = { input = it }, modifier = Modifier.weight(1f),
-                            placeholder = { Text("Message COSMIC") }, maxLines = 6, shape = RoundedCornerShape(20.dp),
+                            placeholder = { Text("Message CODEX") }, maxLines = 6, shape = RoundedCornerShape(20.dp),
                             colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.surface,
                                 focusedBorderColor = MaterialTheme.colorScheme.surface))
                         FilledIconButton(
@@ -349,7 +349,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                         Spacer(Modifier.height(18.dp))
                         Text("What would you like to accomplish?", style = MaterialTheme.typography.headlineMedium)
                         Spacer(Modifier.height(8.dp))
-                        Text("Describe an outcome. COSMIC can help plan the work and use the tools you approve.",
+                        Text("Describe an outcome. CODEX can help plan the work and use the tools you approve.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(24.dp))
                         listOf("Help me understand this project", "Research a technical question", "Plan a reliable implementation").forEach { suggestion ->
@@ -391,7 +391,7 @@ private fun MessageBubble(msg: ChatMessage) {
         Surface(color = bg, shape = RoundedCornerShape(if (isUser) 20.dp else 10.dp), modifier = Modifier.widthIn(max = 720.dp)) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
                 if (!isUser) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (msg.role == "tool") "TOOL RESULT" else "COSMIC", style = MaterialTheme.typography.labelSmall,
+                    Text(if (msg.role == "tool") "TOOL RESULT" else "CODEX", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).padding(bottom = 5.dp))
                     IconButton(onClick = { clipboard.setText(AnnotatedString(msg.content)) }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy response", modifier = Modifier.size(16.dp))

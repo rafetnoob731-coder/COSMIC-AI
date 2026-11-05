@@ -1,4 +1,4 @@
-# COSMIC AI Architecture (Milestone 3)
+# COSMIC CODEX Architecture (Milestone 3)
 
 ## Principle
 

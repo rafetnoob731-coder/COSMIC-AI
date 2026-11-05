@@ -1,6 +1,6 @@
 # Provider and MCP Resources
 
-COSMIC AI is designed to connect to provider APIs directly or through compatible gateways. Provider catalogs, model names, API capabilities, pricing, and access policies change over time. Always confirm current details with the service before configuring it.
+COSMIC CODEX is designed to connect to provider APIs directly or through compatible gateways. Provider catalogs, model names, API capabilities, pricing, and access policies change over time. Always confirm current details with the service before configuring it.
 
 ## Provider connection options
 
@@ -53,7 +53,7 @@ The app currently offers presets for OpenAI, Anthropic, Gemini, OpenRouter, Deep
 ### API key and network guidance
 
 - Create credentials only through the selected provider's official account/settings pages.
-- Store a key only in COSMIC AI's encrypted provider configuration. Do not put keys in chat, project files, screenshots, issue reports, or logs.
+- Store a key only in COSMIC CODEX's encrypted provider configuration. Do not put keys in chat, project files, screenshots, issue reports, or logs.
 - Prefer HTTPS. For local inference, configure a reachable local service intentionally; Android emulator `localhost` refers to the emulator itself, not automatically to a computer host.
 - Do not expose an unauthenticated inference endpoint to a public network.
 - Review provider retention, region, and billing terms before sending private source code.

@@ -2,6 +2,7 @@
 package com.cosmic.ai.ui.screens.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -11,11 +12,13 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cosmic.ai.ui.navigation.Routes
+import com.cosmic.ai.R
 
 private data class HomeTile(val title: String, val subtitle: String, val icon: ImageVector, val route: String)
 
@@ -40,9 +43,17 @@ fun HomeScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("COSMIC AI", fontWeight = FontWeight.Bold)
-                        Text("One Intelligence. Infinite Possibilities.", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_cosmic_logo),
+                            contentDescription = null,
+                            modifier = Modifier.size(34.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("COSMIC CODEX", fontWeight = FontWeight.Bold)
+                            Text("AI engineering workspace", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 },
                 actions = {

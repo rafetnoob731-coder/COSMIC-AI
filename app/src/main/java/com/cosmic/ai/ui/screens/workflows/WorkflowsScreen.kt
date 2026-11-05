@@ -2,6 +2,8 @@
 package com.cosmic.ai.ui.screens.workflows
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountTree
@@ -21,14 +23,14 @@ fun WorkflowsScreen(onBack: () -> Unit) {
         )
     }) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 32.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Icon(Icons.Outlined.AccountTree, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
             Text("Automations", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "Automations will let COSMIC run approved, repeatable workflows with schedules, integrations, and execution history.",
+                "Automations will let COSMIC CODEX run approved, repeatable workflows with schedules, integrations, and execution history.",
                 style = MaterialTheme.typography.bodyLarge
             )
             Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {

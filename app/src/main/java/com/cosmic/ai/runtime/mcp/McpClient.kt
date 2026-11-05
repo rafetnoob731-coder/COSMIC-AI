@@ -112,7 +112,7 @@ class StdioMcpSession(private val config: McpServerConfig) : McpSession {
             JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "COSMIC AI").put("version", "0.1.0"))
+                .put("clientInfo", JSONObject().put("name", "COSMIC CODEX").put("version", "0.1.0"))
         )
         notify("notifications/initialized", JSONObject())
     }
@@ -211,7 +211,7 @@ class HttpMcpSession(private val config: McpServerConfig) : McpSession {
             JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "COSMIC AI").put("version", "0.1.0"))
+                .put("clientInfo", JSONObject().put("name", "COSMIC CODEX").put("version", "0.1.0"))
         )
     }
 

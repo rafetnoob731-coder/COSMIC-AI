@@ -1,4 +1,4 @@
-# COSMIC AI
+# COSMIC CODEX
 
 Mobile-first autonomous coding agent for Android.
 
@@ -37,7 +37,7 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 3. Run on device/emulator.
 4. Settings → Add Provider → paste API key + base URL + model.
 5. Projects → Open Project Folder (SAF).
-6. Agent tab → switch to Agent mode → instruct.
+6. Open the conversation workspace and select a mode from its composer controls.
 
 ## Architecture
 
@@ -110,6 +110,12 @@ App startup reads `GET /repos/rafetnoob731-coder/COSMIC-AI/releases/latest` (no 
 ## Bug Center
 
 In chat: `/bugs` · `/bugs new` · `/bugs my` · `/bugs help`
+
+## Brand and search
+
+The supplied COSMIC CODEX logo is used in onboarding; the UI concept reference is stored at `docs/assets/cosmic_codex_ui_reference.png`. The app icon uses a simplified vector mark so it stays legible at launcher sizes.
+
+Search uses DuckDuckGo Instant Answers through its documented endpoint. This is not a full organic web search API and may return no results. See [search migration notes](docs/SEARCH_MIGRATION.md).
 
 ## Product resources
 
