@@ -47,10 +47,13 @@ fun ProjectsScreen(onBack: () -> Unit) {
             status = "Inspecting permitted project files…"
             scope.launch {
                 val scan = withContext(Dispatchers.IO) { inspectProject(context, uri) }
-                findings = scan.first
-                status = if (scan.first.isEmpty()) "Folder is accessible; no recognized project languages or manifests found." else "${scan.second} files inspected · detection is based on project files, not assumptions."
-                val languageNames = scan.first.filter { it.kind == TechnologyFinding.Kind.LANGUAGE }.map { it.name }
-                runtimeStatus = languageNames.associateWith { AndroidRuntimeProbe().availableExecutables(it) }
+                findings = scan.findings
+                status = if (scan.findings.isEmpty()) "Folder is accessible; no recognized project languages or manifests found." else "${scan.fileCount} files inspected · detection is based on project files, not assumptions."
+                val languageNames = scan.findings.filter { it.kind == TechnologyFinding.Kind.LANGUAGE }.map { it.name }
+                val probe = AndroidRuntimeProbe()
+                val detectedRuntimes = mutableMapOf<String, Set<String>>()
+                for (language in languageNames) detectedRuntimes[language] = probe.availableExecutables(language)
+                runtimeStatus = detectedRuntimes
                 scanning = false
             }
         }
