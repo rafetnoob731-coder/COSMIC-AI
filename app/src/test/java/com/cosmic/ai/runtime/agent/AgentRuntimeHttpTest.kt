@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -73,6 +74,40 @@ class AgentRuntimeHttpTest {
         assertEquals(listOf("hi", "Hello"), database.messageDao().getForSession("session").map { it.content })
         assertEquals("COMPLETED", database.taskDao().getById((result as AgentUiEvent.Completed).taskId)?.status)
         assertEquals("Bearer test-key", server.takeRequest().getHeader("Authorization"))
+        collector.cancel()
+    }
+
+    @Test fun unauthorizedProviderResponseIsReportedAsHttp401AndPersistedFailed() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("private authorization response"))
+        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "invalid-key" }, McpClientManager(),
+            { OpenAiCompatibleProvider() })
+        val done = CompletableDeferred<AgentUiEvent.Failed>()
+        val collector = CoroutineScope(coroutineContext).launch {
+            runtime.events.collect { event -> if (event is AgentUiEvent.Failed) done.complete(event) }
+        }
+        val config = ProviderConfig("test", "Mock OpenAI", ProviderType.OPENAI_COMPATIBLE,
+            server.url("/v1").toString().trimEnd('/'), "api-key", "test-model")
+        runtime.run("session", "hi", config, "test-model")
+        val failure = withTimeout(10_000) { done.await() }
+        assertTrue(failure.message.contains("HTTP 401"))
+        assertTrue(!failure.message.contains("private authorization response"))
+        assertEquals("FAILED", database.taskDao().getById(failure.taskId!!)?.status)
+        collector.cancel()
+    }
+
+    @Test fun providerNetworkDisconnectFailsInsteadOfReportingCompletion() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "test-key" }, McpClientManager(),
+            { OpenAiCompatibleProvider() })
+        val done = CompletableDeferred<AgentUiEvent>()
+        val collector = CoroutineScope(coroutineContext).launch {
+            runtime.events.collect { event -> if (event is AgentUiEvent.Failed || event is AgentUiEvent.Completed) done.complete(event) }
+        }
+        val config = ProviderConfig("test", "Mock OpenAI", ProviderType.OPENAI_COMPATIBLE,
+            server.url("/v1").toString().trimEnd('/'), "api-key", "test-model")
+        runtime.run("session", "hi", config, "test-model")
+        val result = withTimeout(10_000) { done.await() }
+        assertTrue("Expected network failure, got $result", result is AgentUiEvent.Failed)
         collector.cancel()
     }
 
