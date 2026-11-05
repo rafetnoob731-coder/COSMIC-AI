@@ -3,6 +3,7 @@ package com.cosmic.ai.ui.screens.settings
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -123,6 +124,10 @@ private fun ProvidersSection(
     var discovering by remember { mutableStateOf(false) }
     var discoveredModels by remember { mutableStateOf<List<ProviderModel>>(emptyList()) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var modelFilter by remember { mutableStateOf("") }
+    val visibleModels = discoveredModels.filter {
+        it.id.contains(modelFilter, ignoreCase = true) || it.displayName.contains(modelFilter, ignoreCase = true)
+    }
 
     Column(
         modifier = Modifier
@@ -204,6 +209,7 @@ private fun ProvidersSection(
                             result.fold(
                                 onSuccess = {
                                     discoveredModels = it
+                                    modelFilter = ""
                                     testMsg = "Found ${it.size} models"
                                     modelMenuExpanded = it.isNotEmpty()
                                 },
@@ -221,11 +227,21 @@ private fun ProvidersSection(
                         Text("Choose (${discoveredModels.size})")
                     }
                     DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                        discoveredModels.take(100).forEach { discovered ->
-                            DropdownMenuItem(
-                                text = { Text(discovered.displayName) },
-                                onClick = { model = discovered.id; modelMenuExpanded = false }
+                        Column(Modifier.widthIn(min = 260.dp, max = 360.dp).heightIn(max = 420.dp).padding(8.dp)) {
+                            OutlinedTextField(
+                                value = modelFilter,
+                                onValueChange = { modelFilter = it },
+                                label = { Text("Filter models") },
+                                singleLine = true
                             )
+                            androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                                items(visibleModels.take(500)) { discovered ->
+                                    DropdownMenuItem(
+                                        text = { Text(discovered.displayName) },
+                                        onClick = { model = discovered.id; modelMenuExpanded = false }
+                                    )
+                                }
+                            }
                         }
                     }
                 }

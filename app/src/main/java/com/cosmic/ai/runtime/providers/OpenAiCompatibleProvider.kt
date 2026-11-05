@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.sse.EventSource
@@ -30,24 +31,33 @@ class OpenAiCompatibleProvider(
 
     override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(config.baseUrl.trimEnd('/') + "/models")
-                .header("Authorization", "Bearer $apiKey")
-                .header("Accept", "application/json")
-                .get()
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
-                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("data") ?: JSONArray()
-                val models = buildList {
-                    for (index in 0 until data.length()) {
-                        val item = data.optJSONObject(index) ?: continue
-                        val id = item.optString("id").trim()
-                        if (id.isNotEmpty()) add(ProviderModel(id = id, displayName = item.optString("name").ifBlank { id }))
-                    }
+            val found = linkedMapOf<String, ProviderModel>()
+            var after: String? = null
+            for (page in 0 until 20) {
+                val url = (config.baseUrl.trimEnd('/') + "/models").toHttpUrl().newBuilder().apply {
+                    after?.let { addQueryParameter("after", it); addQueryParameter("limit", "100") }
+                }.build()
+                val request = Request.Builder().url(url)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Accept", "application/json").get().build()
+                val root = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                    JSONObject(response.body?.string().orEmpty())
                 }
-                Result.success(models)
+                val data = root.optJSONArray("data") ?: JSONArray()
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val id = item.optString("id").trim()
+                    if (id.isNotEmpty()) found.putIfAbsent(id, ProviderModel(id, item.optString("name").ifBlank { id }))
+                }
+                if (!root.optBoolean("has_more")) break
+                val next = root.optString("last_id").ifBlank {
+                    data.optJSONObject(data.length() - 1)?.optString("id").orEmpty()
+                }
+                if (next.isBlank() || next == after) break
+                after = next
             }
+            Result.success(found.values.toList())
         } catch (error: Exception) {
             Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
         }

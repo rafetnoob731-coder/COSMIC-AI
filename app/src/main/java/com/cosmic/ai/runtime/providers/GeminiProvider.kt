@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -35,27 +36,30 @@ class GeminiProvider(
 
     override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(config.baseUrl.trimEnd('/').ifBlank { "https://generativelanguage.googleapis.com/v1beta" } + "/models")
-                .header("x-goog-api-key", apiKey)
-                .header("Accept", "application/json")
-                .get()
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
-                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("models") ?: JSONArray()
-                val models = buildList {
-                    for (index in 0 until data.length()) {
-                        val item = data.optJSONObject(index) ?: continue
-                        val methods = item.optJSONArray("supportedGenerationMethods")
-                        if (methods != null && (0 until methods.length()).none { methods.optString(it) == "generateContent" }) continue
-                        val resourceName = item.optString("name").trim()
-                        val id = resourceName.removePrefix("models/")
-                        if (id.isNotEmpty()) add(ProviderModel(id, item.optString("displayName").ifBlank { id }))
-                    }
+            val base = config.baseUrl.trimEnd('/').ifBlank { "https://generativelanguage.googleapis.com/v1beta" } + "/models"
+            val found = linkedMapOf<String, ProviderModel>()
+            var pageToken: String? = null
+            for (page in 0 until 20) {
+                val url = base.toHttpUrl().newBuilder().apply { pageToken?.let { addQueryParameter("pageToken", it) } }.build()
+                val request = Request.Builder().url(url).header("x-goog-api-key", apiKey)
+                    .header("Accept", "application/json").get().build()
+                val root = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                    JSONObject(response.body?.string().orEmpty())
                 }
-                Result.success(models)
+                val data = root.optJSONArray("models") ?: JSONArray()
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val methods = item.optJSONArray("supportedGenerationMethods")
+                    if (methods != null && (0 until methods.length()).none { methods.optString(it) == "generateContent" }) continue
+                    val id = item.optString("name").trim().removePrefix("models/")
+                    if (id.isNotEmpty()) found.putIfAbsent(id, ProviderModel(id, item.optString("displayName").ifBlank { id }))
+                }
+                val next = root.optString("nextPageToken").takeIf { it.isNotBlank() }
+                if (next == null || next == pageToken) break
+                pageToken = next
             }
+            Result.success(found.values.toList())
         } catch (error: Exception) {
             Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
         }

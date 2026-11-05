@@ -76,6 +76,31 @@ class ProviderAdaptersTest {
         assertFalse(request.requestUrl!!.queryParameterNames.contains("key"))
     }
 
+
+    @Test fun openAiCompatibleDiscoveryFollowsCursorWhenServerProvidesPagination() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"data":[{"id":"model-a"}],"has_more":true,"last_id":"model-a"}"""))
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"data":[{"id":"model-b"}],"has_more":false}"""))
+        val models = OpenAiCompatibleProvider().discoverModels(config("/v1"), "key").getOrThrow()
+        assertEquals(listOf("model-a", "model-b"), models.map { it.id })
+        assertEquals("/v1/models", server.takeRequest().path)
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("model-a", second.queryParameter("after"))
+        assertEquals("100", second.queryParameter("limit"))
+    }
+
+    @Test fun geminiDiscoveryFollowsPageToken() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"models":[{"name":"models/gemini-a","supportedGenerationMethods":["generateContent"]}],"nextPageToken":"next"}"""))
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("""{"models":[{"name":"models/gemini-b","supportedGenerationMethods":["generateContent"]}]}"""))
+        val models = GeminiProvider().discoverModels(config("/v1beta"), "key").getOrThrow()
+        assertEquals(listOf("gemini-a", "gemini-b"), models.map { it.id })
+        server.takeRequest()
+        assertEquals("next", server.takeRequest().requestUrl?.queryParameter("pageToken"))
+    }
+
     @Test fun openAiCompletionParsesAssistantResponseAndSendsRequestedModel() = runBlocking {
         server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(
             """{"choices":[{"message":{"role":"assistant","content":"completed"},"finish_reason":"stop"}]}"""

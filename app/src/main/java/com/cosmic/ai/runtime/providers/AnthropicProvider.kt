@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -29,25 +30,30 @@ class AnthropicProvider(
 
     override suspend fun discoverModels(config: ProviderConfig, apiKey: String): Result<List<ProviderModel>> = withContext(Dispatchers.IO) {
         try {
-            val req = Request.Builder()
-                .url(config.baseUrl.trimEnd('/') + "/v1/models?limit=1000")
-                .header("x-api-key", apiKey)
-                .header("anthropic-version", "2023-06-01")
-                .header("Accept", "application/json")
-                .get()
-                .build()
-            client.newCall(req).execute().use { response ->
-                if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
-                val data = JSONObject(response.body?.string().orEmpty()).optJSONArray("data") ?: JSONArray()
-                val models = buildList {
-                    for (index in 0 until data.length()) {
-                        val item = data.optJSONObject(index) ?: continue
-                        val id = item.optString("id").trim()
-                        if (id.isNotEmpty()) add(ProviderModel(id, item.optString("display_name").ifBlank { id }))
-                    }
+            val found = linkedMapOf<String, ProviderModel>()
+            var afterId: String? = null
+            for (page in 0 until 20) {
+                val url = (config.baseUrl.trimEnd('/') + "/v1/models").toHttpUrl().newBuilder()
+                    .addQueryParameter("limit", "1000").apply { afterId?.let { addQueryParameter("after_id", it) } }.build()
+                val request = Request.Builder().url(url)
+                    .header("x-api-key", apiKey).header("anthropic-version", "2023-06-01")
+                    .header("Accept", "application/json").get().build()
+                val root = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext Result.failure(IOException("Model discovery failed: HTTP ${response.code}"))
+                    JSONObject(response.body?.string().orEmpty())
                 }
-                Result.success(models)
+                val data = root.optJSONArray("data") ?: JSONArray()
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val id = item.optString("id").trim()
+                    if (id.isNotEmpty()) found.putIfAbsent(id, ProviderModel(id, item.optString("display_name").ifBlank { id }))
+                }
+                if (!root.optBoolean("has_more")) break
+                val next = root.optString("last_id").ifBlank { data.optJSONObject(data.length() - 1)?.optString("id").orEmpty() }
+                if (next.isBlank() || next == afterId) break
+                afterId = next
             }
+            Result.success(found.values.toList())
         } catch (error: Exception) {
             Result.failure(IOException("Model discovery failed: ${error.javaClass.simpleName}"))
         }
