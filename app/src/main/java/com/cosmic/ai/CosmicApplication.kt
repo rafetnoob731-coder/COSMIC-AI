@@ -32,7 +32,7 @@ class CosmicApplication : Application(), Configuration.Provider {
         secureStore = SecureStore(this)
         mcpManager = McpClientManager()
         permissionGateway = PermissionGateway()
-        agentRuntime = AgentRuntime(this, database, secureStore, mcpManager)
+        agentRuntime = AgentRuntime(this, database, secureStore::getSecret, mcpManager)
         createNotificationChannels()
     }
 

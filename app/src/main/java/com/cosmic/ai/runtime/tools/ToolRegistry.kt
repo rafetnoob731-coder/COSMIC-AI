@@ -209,7 +209,7 @@ fun resolvePath(root: DocumentFile, relative: String): DocumentFile? {
     return current
 }
 
-class ToolRegistry(context: Context, gateway: PermissionGateway = PermissionGateway()) {
+class ToolRegistry(context: Context, searchApiKeyReader: () -> String? = { null }, gateway: PermissionGateway = PermissionGateway()) {
     private val tools: Map<String, Tool> = listOf(
         ListFilesTool(context),
         ReadFileTool(context),
@@ -217,7 +217,8 @@ class ToolRegistry(context: Context, gateway: PermissionGateway = PermissionGate
         RunCommandTool(context),
         GitStatusTool(context),
         GitDiffTool(context),
-        GitLogTool(context)
+        GitLogTool(context),
+        BraveSearchTool(searchApiKeyReader)
     ).associateBy { it.definition.name }
 
     fun definitions(): List<ToolDefinition> = tools.values.map { it.definition }

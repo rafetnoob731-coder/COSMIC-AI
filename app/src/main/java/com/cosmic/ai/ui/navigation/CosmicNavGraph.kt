@@ -105,8 +105,9 @@ fun CosmicNavGraph(navController: NavHostController) {
                 onSettings = { navController.navigate(Routes.SETTINGS) }
             )
         }
+        // The conversation is the workspace landing screen; navigation to tools stays in its drawer.
         composable(Routes.HOME) {
-            HomeScreen(
+            AgentScreen(
                 onNavigate = { navController.navigate(it) },
                 onSettings = { navController.navigate(Routes.SETTINGS) }
             )

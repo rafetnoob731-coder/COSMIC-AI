@@ -2,11 +2,13 @@
 package com.cosmic.ai.ui.screens.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.*
@@ -35,7 +37,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val providers by db.providerDao().observeAll().collectAsState(initial = emptyList())
 
-    var section by remember { mutableStateOf(0) } // 0 providers 1 mcp 2 permissions 3 appearance
+    var section by remember { mutableStateOf<Int?>(null) } // Settings landing list, then a focused category
 
     Scaffold(
         topBar = {
@@ -54,17 +56,50 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            ScrollableTabRow(selectedTabIndex = section) {
-                Tab(selected = section == 0, onClick = { section = 0 }, text = { Text("Providers") })
-                Tab(selected = section == 1, onClick = { section = 1 }, text = { Text("MCP") })
-                Tab(selected = section == 2, onClick = { section = 2 }, text = { Text("Permissions") })
-                Tab(selected = section == 3, onClick = { section = 3 }, text = { Text("Appearance") })
-            }
-            when (section) {
-                0 -> ProvidersSection(providers, scope, db, store)
-                1 -> McpSection()
-                2 -> PermissionsSection()
-                3 -> AppearanceSection()
+            val selectedSection = section
+            if (selectedSection == null) {
+                Column(
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Configure your workspace", style = MaterialTheme.typography.titleMedium)
+                    listOf(
+                        "Providers & Models" to 0,
+                        "API Credentials" to 4,
+                        "MCP Servers" to 1,
+                        "Agent Permissions" to 2,
+                        "Appearance" to 3
+                    ).forEach { (label, target) ->
+                        ListItem(
+                            headlineContent = { Text(label) },
+                            supportingContent = { Text(when (target) {
+                                0 -> "Connect models and manage provider keys"
+                                1 -> "Manage connected tool servers"
+                                2 -> "Control file and terminal capabilities"
+                                3 -> "Theme and interface preferences"
+                                else -> "Manage separately stored credentials"
+                            }) },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth().clickable { section = target }
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    TextButton(onClick = { section = null }, modifier = Modifier.padding(start = 8.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("All settings")
+                    }
+                    when (selectedSection) {
+                        0 -> ProvidersSection(providers, scope, db, store)
+                        1 -> McpSection()
+                        2 -> PermissionsSection()
+                        3 -> AppearanceSection()
+                        4 -> SearchCredentialsSection(store)
+                    }
+                }
             }
         }
     }
@@ -247,6 +282,39 @@ private fun ProvidersSection(
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+}
+
+
+@Composable
+private fun SearchCredentialsSection(store: com.cosmic.ai.data.local.keystore.SecureStore) {
+    var key by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    val hasKey = remember { mutableStateOf(store.hasSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)) }
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Brave Search", style = MaterialTheme.typography.titleMedium)
+        Text("Dedicated web research credential. Stored separately from model-provider keys using Android encrypted storage.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (hasKey.value) "Credential configured · ${store.mask(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)}" else "No Brave key configured")
+        OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Brave Search API key") },
+            modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = key.isNotBlank(), onClick = {
+                store.putSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS, key.trim())
+                key = ""
+                hasKey.value = true
+                message = "Brave Search credential saved securely."
+            }) { Text("Save key") }
+            OutlinedButton(enabled = hasKey.value, onClick = {
+                store.removeSecret(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)
+                hasKey.value = false
+                message = "Brave Search credential removed."
+            }) { Text("Remove") }
+        }
+        if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.primary)
     }
 }
 

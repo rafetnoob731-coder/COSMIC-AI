@@ -6,7 +6,6 @@ import android.net.Uri
 import com.cosmic.ai.data.local.db.CosmicDatabase
 import com.cosmic.ai.data.local.db.entity.MessageEntity
 import com.cosmic.ai.data.local.db.entity.TaskEntity
-import com.cosmic.ai.data.local.keystore.SecureStore
 import com.cosmic.ai.domain.agent.*
 import com.cosmic.ai.domain.provider.*
 import com.cosmic.ai.runtime.providers.ProviderFactory
@@ -22,11 +21,14 @@ import java.io.IOException
 class AgentRuntime(
     private val context: Context,
     private val db: CosmicDatabase,
-    private val secureStore: SecureStore,
-    private val mcpManager: com.cosmic.ai.runtime.mcp.McpClientManager
+    private val apiKeyReader: (String) -> String?,
+    private val mcpManager: com.cosmic.ai.runtime.mcp.McpClientManager,
+    private val providerResolver: (ProviderType) -> AiProvider = ProviderFactory::get
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val tools = ToolRegistry(context)
+    private val tools = ToolRegistry(context, searchApiKeyReader = {
+        apiKeyReader(com.cosmic.ai.runtime.tools.BraveSearchTool.SECRET_ALIAS)
+    })
 
     private val _events = MutableSharedFlow<AgentUiEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<AgentUiEvent> = _events.asSharedFlow()
@@ -45,10 +47,9 @@ class AgentRuntime(
 
     fun cancel() {
         currentJob?.cancel()
-        currentJob = null
-        scope.launch { _events.emit(AgentUiEvent.Cancelled) }
     }
 
+    @Synchronized
     fun run(
         sessionId: String,
         userMessage: String,
@@ -57,25 +58,48 @@ class AgentRuntime(
         mode: AgentMode = AgentMode.AGENT,
         maxSteps: Int = 12
     ) {
-        currentJob?.cancel()
-        currentJob = scope.launch {
-            val taskId = UUID.randomUUID().toString()
+        if (currentJob?.isActive == true) {
+            _events.tryEmit(AgentUiEvent.ExecutionRejected("An execution is already active. Stop it before starting another."))
+            return
+        }
+        val taskId = UUID.randomUUID().toString()
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            _events.emit(AgentUiEvent.ExecutionStarted(taskId, config.name, model))
             val taskCreatedAt = System.currentTimeMillis()
             val steps = mutableListOf<AgentStep>()
+            var httpStatus: Int? = null
+            var promptTokens = 0
+            var completionTokens = 0
+            var streaming = false
             suspend fun persistTask(status: TaskStatus, progress: String) {
                 val now = System.currentTimeMillis()
+                val diagnostic = JSONObject()
+                    .put("kind", "execution")
+                    .put("executionId", taskId)
+                    .put("provider", config.name)
+                    .put("model", model)
+                    .put("startedAt", taskCreatedAt)
+                    .put("finishedAt", if (status in setOf(TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)) now else JSONObject.NULL)
+                    .put("stage", progress.take(300))
+                    .put("streaming", streaming)
+                    .put("promptTokens", promptTokens)
+                    .put("completionTokens", completionTokens)
+                    .put("httpStatus", httpStatus ?: JSONObject.NULL)
+                val recordedSteps = JSONArray().put(diagnostic)
+                steps.forEach {
+                    recordedSteps.put(JSONObject()
+                        .put("kind", "step")
+                        .put("index", it.index)
+                        .put("type", it.type.name)
+                        .put("content", it.content.take(2000))
+                        .put("tool", it.toolName))
+                }
                 db.taskDao().upsert(
                     TaskEntity(
                         id = taskId,
                         sessionId = sessionId,
                         status = status.name,
-                        stepsJson = JSONArray(steps.map {
-                            JSONObject()
-                                .put("index", it.index)
-                                .put("type", it.type.name)
-                                .put("content", it.content.take(2000))
-                                .put("tool", it.toolName)
-                        }).toString(),
+                        stepsJson = recordedSteps.toString(),
                         progressMessage = progress.take(300),
                         createdAt = taskCreatedAt,
                         updatedAt = now
@@ -90,7 +114,7 @@ class AgentRuntime(
 
             var finishedNormally = false
             try {
-                persistTask(TaskStatus.RUNNING, "Starting")
+                persistTask(TaskStatus.STARTING, "Starting")
                 // persist user message
                 val userMsgId = UUID.randomUUID().toString()
                 db.messageDao().insert(
@@ -112,11 +136,8 @@ class AgentRuntime(
                 while (stepCount < maxSteps) {
                     ensureActive()
                     stepCount++
-                    val apiKey = secureStore.getSecret(config.apiKeyAlias)
-                    if (apiKey == null) {
-                        emitStep(StepType.ERROR, "API key missing for provider ${config.name}")
-                        break
-                    }
+                    val apiKey = apiKeyReader(config.apiKeyAlias)
+                        ?: throw IllegalStateException("No API key is configured for ${config.name}. Add or select a provider in Settings.")
 
                     val request = ChatRequest(
                         model = model,
@@ -132,30 +153,53 @@ class AgentRuntime(
                         stream = true
                     )
 
-                    var assistantText = StringBuilder()
-                    val pendingTools = mutableListOf<ToolCall>()
-                    var finishReason = "stop"
+                    val assistantText = StringBuilder()
+                    val toolCallAssembler = ToolCallAssembler()
+                    var finishReason: String? = null
+                    var streamFinished = false
 
-                    ProviderFactory.get(config.type).streamChat(config, apiKey, request).collect { event ->
+                    persistTask(TaskStatus.WAITING_FOR_MODEL, "Waiting for ${config.name} · $model")
+                    providerResolver(config.type).streamChat(config, apiKey, request).collect { event ->
                         ensureActive()
                         when (event) {
                             is ChatEvent.Delta -> {
+                                if (!streaming) {
+                                    streaming = true
+                                    persistTask(TaskStatus.RUNNING, "Receiving model response")
+                                }
                                 assistantText.append(event.text)
                                 _events.emit(AgentUiEvent.StreamDelta(event.text))
                             }
-                            is ChatEvent.ToolCallDelta -> pendingTools.add(event.toolCall)
-                            is ChatEvent.Finished -> finishReason = event.finishReason
-                            is ChatEvent.Error -> {
-                                emitStep(StepType.ERROR, event.message)
-                                throw IOException("Provider request failed: ${event.message}")
+                            is ChatEvent.ToolCallDelta -> toolCallAssembler.append(
+                                event.index, event.id, event.nameFragment, event.argumentsFragment
+                            )
+                            is ChatEvent.Finished -> {
+                                if (finishReason == null || event.finishReason != "stop") finishReason = event.finishReason
+                                streamFinished = true
                             }
-                            is ChatEvent.Usage -> { /* optional tracking */ }
+                            is ChatEvent.Error -> {
+                                httpStatus = event.code
+                                emitStep(StepType.ERROR, "Provider error${event.code?.let { " (HTTP $it)" } ?: ""}: ${event.message}")
+                                throw IOException("Provider request failed${event.code?.let { " (HTTP $it)" } ?: ""}: ${event.message}")
+                            }
+                            is ChatEvent.Usage -> {
+                                promptTokens = event.promptTokens
+                                completionTokens = event.completionTokens
+                            }
                         }
                     }
 
+                    if (!streamFinished) {
+                        throw IOException("Provider stream ended before a completion signal was received")
+                    }
+                    val pendingTools = toolCallAssembler.finish(request.tools.orEmpty())
+                    streaming = false
                     val content = assistantText.toString()
-                    if (content.isNotBlank()) {
-                        emitStep(StepType.REASONING, content)
+                    if (content.isBlank() && pendingTools.isEmpty()) {
+                        throw IOException("Provider returned an empty response. Check the selected model and try again.")
+                    }
+                    if (content.isNotBlank() || pendingTools.isNotEmpty()) {
+                        emitStep(StepType.REASONING, content.ifBlank { "Tool call requested" })
                         messages.add(ChatMessage("assistant", content, toolCalls = pendingTools.ifEmpty { null }))
                         db.messageDao().insert(
                             MessageEntity(
@@ -172,15 +216,20 @@ class AgentRuntime(
                         _events.emit(AgentUiEvent.MessageAdded(ChatMessage("assistant", content)))
                     }
 
-                    if (pendingTools.isEmpty() || finishReason != "tool_calls") {
+                    if (pendingTools.isEmpty()) {
+                        if (finishReason == "length") throw IOException("The model response was truncated at its output limit. Increase the token limit or retry.")
                         emitStep(StepType.SUMMARY, "Completed in $stepCount step(s)")
                         finishedNormally = true
                         break
+                    }
+                    if (finishReason != "tool_calls") {
+                        throw IOException("Provider returned tool calls without a tool-call completion reason")
                     }
 
                     // execute tools
                     for (tc in pendingTools) {
                         ensureActive()
+                        persistTask(TaskStatus.WAITING_FOR_TOOL, "Executing ${tc.name}")
                         emitStep(StepType.TOOL_CALL, tc.arguments, tc.name)
                         val tool = tools.get(tc.name)
                         val result = if (tool == null) {
@@ -217,36 +266,68 @@ class AgentRuntime(
                                 emitStep(StepType.TOOL_RESULT, result.error, tc.name, result.error)
                                 val toolMsg = ChatMessage("tool", "Error: ${result.error}", toolCallId = tc.id, name = tc.name)
                                 messages.add(toolMsg)
+                                db.messageDao().insert(
+                                    MessageEntity(UUID.randomUUID().toString(), sessionId, "tool", toolMsg.content,
+                                        toolCallId = tc.id, createdAt = System.currentTimeMillis())
+                                )
                             }
                         }
                     }
                 }
 
                 if (finishedNormally) {
+                    // The final response has already been inserted into Room before terminal state.
+                    persistTask(TaskStatus.COMPLETING, "Saving final response")
                     persistTask(TaskStatus.COMPLETED, "done")
                     _events.emit(AgentUiEvent.Completed(taskId))
                 } else {
-                    persistTask(TaskStatus.FAILED, "Execution ended before completion")
-                    _events.emit(AgentUiEvent.Failed("Execution ended before completion"))
+                    throw IOException("Execution reached an invalid terminal state")
                 }
             } catch (e: CancellationException) {
-                withContext(NonCancellable) {
-                    runCatching { persistTask(TaskStatus.CANCELLED, "Cancelled") }
+                val persistenceError = withContext(NonCancellable) {
+                    try {
+                        persistTask(TaskStatus.CANCELLED, "Cancelled")
+                        null
+                    } catch (persist: Exception) {
+                        persist.message ?: persist.javaClass.simpleName
+                    }
                 }
-                _events.emit(AgentUiEvent.Cancelled)
+                if (persistenceError == null) _events.tryEmit(AgentUiEvent.Cancelled(taskId))
+                else _events.tryEmit(AgentUiEvent.Failed("Execution was cancelled, but its state could not be saved: $persistenceError", taskId))
             } catch (e: Exception) {
-                emitStep(StepType.ERROR, e.message ?: "agent failure")
-                withContext(NonCancellable) {
-                    runCatching { persistTask(TaskStatus.FAILED, "Execution failed") }
+                val category = when (e) {
+                    is ToolCallFormatException -> "Invalid tool call"
+                    is java.net.SocketTimeoutException -> "Network timeout"
+                    is IOException -> "Provider or network error"
+                    is IllegalStateException -> "Configuration error"
+                    else -> "Execution error"
                 }
-                _events.emit(AgentUiEvent.Failed(e.message ?: "unknown"))
+                val message = "$category: ${e.message ?: e.javaClass.simpleName}"
+                emitStep(StepType.ERROR, message)
+                val persistenceError = withContext(NonCancellable) {
+                    try {
+                        persistTask(TaskStatus.FAILED, message)
+                        null
+                    } catch (persist: Exception) {
+                        persist.message ?: persist.javaClass.simpleName
+                    }
+                }
+                val reported = if (persistenceError == null) message else "$message (task state save failed: $persistenceError)"
+                _events.emit(AgentUiEvent.Failed(reported, taskId))
+            } finally {
+                synchronized(this@AgentRuntime) {
+                    if (currentJob === coroutineContext[Job]) currentJob = null
+                }
             }
         }
+        currentJob = job
+        job.start()
     }
 
     private fun buildSystemPrompt(mode: AgentMode, hasProject: Boolean): String {
         val base = """
-            You are COSMIC AI, a precise autonomous coding agent running on Android.
+            You are COSMIC AI, a precise autonomous engineering assistant running on Android.
+            For current facts, unfamiliar APIs, libraries, or technical documentation, use brave_web_search and cite its returned URLs. Never invent search results.
             Prefer tools over speculation. Never invent file contents or command results.
             Keep responses concise and technical. When editing, prefer small targeted changes.
         """.trimIndent()
@@ -265,7 +346,9 @@ sealed class AgentUiEvent {
     data class StreamDelta(val text: String) : AgentUiEvent()
     data class Step(val step: AgentStep) : AgentUiEvent()
     data class NeedsApproval(val toolName: String, val args: String, val reason: String) : AgentUiEvent()
+    data class ExecutionStarted(val taskId: String, val provider: String, val model: String) : AgentUiEvent()
+    data class ExecutionRejected(val message: String) : AgentUiEvent()
     data class Completed(val taskId: String) : AgentUiEvent()
-    data class Failed(val message: String) : AgentUiEvent()
-    data object Cancelled : AgentUiEvent()
+    data class Failed(val message: String, val taskId: String? = null) : AgentUiEvent()
+    data class Cancelled(val taskId: String? = null) : AgentUiEvent()
 }

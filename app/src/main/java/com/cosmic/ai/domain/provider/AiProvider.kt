@@ -58,7 +58,12 @@ data class ChatRequest(
 
 sealed class ChatEvent {
     data class Delta(val text: String) : ChatEvent()
-    data class ToolCallDelta(val toolCall: ToolCall) : ChatEvent()
+    data class ToolCallDelta(
+        val index: Int,
+        val id: String? = null,
+        val nameFragment: String? = null,
+        val argumentsFragment: String? = null
+    ) : ChatEvent()
     data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatEvent()
     data class Finished(val finishReason: String) : ChatEvent()
     data class Error(val message: String, val code: Int? = null) : ChatEvent()

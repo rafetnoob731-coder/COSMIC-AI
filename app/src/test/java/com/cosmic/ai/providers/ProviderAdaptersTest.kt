@@ -9,6 +9,7 @@ import com.cosmic.ai.runtime.providers.GeminiProvider
 import com.cosmic.ai.runtime.providers.OpenAiCompatibleProvider
 import com.cosmic.ai.runtime.providers.ProviderFactory
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.toList
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -94,6 +95,40 @@ class ProviderAdaptersTest {
         val result = OpenAiCompatibleProvider().discoverModels(config("/v1"), "test-secret")
         assertTrue(result.isFailure)
         assertFalse(result.exceptionOrNull()?.message.orEmpty().contains("credential leaked"))
+    }
+
+
+    @Test fun openAiStreamingReconstructsFragmentsAsIndexedToolCallDeltas() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("""
+            data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_","arguments":"{\"path\":"}}]},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"file","arguments":"\"src\"}"}}]},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+        """.trimIndent()))
+        val events = OpenAiCompatibleProvider().streamChat(
+            config("/v1"), "key", ChatRequest("model", listOf(ChatMessage("user", "inspect")))
+        ).toList()
+        val fragments = events.filterIsInstance<com.cosmic.ai.domain.provider.ChatEvent.ToolCallDelta>()
+        assertEquals(2, fragments.size)
+        assertEquals(0, fragments.first().index)
+        assertEquals("call_1", fragments.first().id)
+        assertEquals("read_", fragments.first().nameFragment)
+        assertEquals("file", fragments.last().nameFragment)
+        assertTrue(events.any { it is com.cosmic.ai.domain.provider.ChatEvent.Finished })
+    }
+
+    @Test fun streamingHttp429IsReportedWithStatus() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Content-Type", "application/json").setBody("rate limited"))
+        val events = OpenAiCompatibleProvider().streamChat(
+            config("/v1"), "key", ChatRequest("model", listOf(ChatMessage("user", "hello")))
+        ).toList()
+        val failure = events.filterIsInstance<com.cosmic.ai.domain.provider.ChatEvent.Error>().single()
+        assertEquals(429, failure.code)
+        assertFalse(failure.message.contains("rate limited"))
     }
 
     private fun config(path: String) = ProviderConfig(

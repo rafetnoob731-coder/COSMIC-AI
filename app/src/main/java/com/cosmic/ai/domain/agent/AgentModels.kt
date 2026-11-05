@@ -21,7 +21,12 @@ data class AgentTaskState(
 
 enum class TaskStatus {
     PENDING,
+    QUEUED,
+    STARTING,
     RUNNING,
+    WAITING_FOR_MODEL,
+    WAITING_FOR_TOOL,
+    COMPLETING,
     AWAITING_APPROVAL,
     COMPLETED,
     FAILED,

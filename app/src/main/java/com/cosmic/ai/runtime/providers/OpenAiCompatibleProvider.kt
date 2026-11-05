@@ -4,6 +4,8 @@ package com.cosmic.ai.runtime.providers
 import com.cosmic.ai.domain.provider.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -109,15 +111,14 @@ class OpenAiCompatibleProvider(
                     val toolCalls = delta.optJSONArray("tool_calls")
                     if (toolCalls != null) {
                         for (i in 0 until toolCalls.length()) {
-                            val tc = toolCalls.getJSONObject(i)
-                            val fn = tc.optJSONObject("function") ?: continue
+                            val tc = toolCalls.optJSONObject(i) ?: continue
+                            val fn = tc.optJSONObject("function")
                             trySend(
                                 ChatEvent.ToolCallDelta(
-                                    ToolCall(
-                                        id = tc.optString("id", "call_$i"),
-                                        name = fn.optString("name"),
-                                        arguments = fn.optString("arguments", "{}")
-                                    )
+                                    index = tc.optInt("index", i),
+                                    id = tc.optString("id").takeIf { it.isNotBlank() },
+                                    nameFragment = fn?.optString("name")?.takeIf { it.isNotBlank() },
+                                    argumentsFragment = fn?.optString("arguments")?.takeIf { it.isNotEmpty() }
                                 )
                             )
                         }
@@ -136,7 +137,8 @@ class OpenAiCompatibleProvider(
                         trySend(ChatEvent.Finished(finish))
                     }
                 } catch (_: Exception) {
-                    // ignore malformed chunk
+                    trySend(ChatEvent.Error("Provider sent malformed streaming data"))
+                    close()
                 }
             }
 
@@ -152,7 +154,7 @@ class OpenAiCompatibleProvider(
 
         val source = EventSources.createFactory(client).newEventSource(httpRequest, listener)
         awaitClose { source.cancel() }
-    }
+    }.buffer(Channel.UNLIMITED)
 
     override suspend fun completeChat(
         config: ProviderConfig,
