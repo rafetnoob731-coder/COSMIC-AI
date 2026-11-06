@@ -2,6 +2,8 @@ package com.cosmic.ai.data.keystore
 
 import android.app.Application
 import com.cosmic.ai.data.local.db.AuditHeadAnchor
+import com.cosmic.ai.data.local.keystore.SecureAuditHeadAnchor
+import com.cosmic.ai.data.local.keystore.SecureStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

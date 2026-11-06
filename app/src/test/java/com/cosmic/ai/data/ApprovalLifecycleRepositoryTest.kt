@@ -6,6 +6,7 @@ import com.cosmic.ai.data.local.db.ApprovalLifecycleRepository
 import com.cosmic.ai.data.local.db.CosmicDatabase
 import com.cosmic.ai.data.local.db.TaskLifecycleRepository
 import com.cosmic.ai.data.local.db.SecurityAuditRepository
+import com.cosmic.ai.data.local.db.AuditHeadAnchor
 import com.cosmic.ai.data.local.db.entity.TaskEntity
 import com.cosmic.ai.domain.agent.TaskStatus
 import kotlinx.coroutines.runBlocking
@@ -153,10 +154,10 @@ class ApprovalLifecycleRepositoryTest {
     }
 
     @Test fun secureHeadAnchorDetectsLatestEventDeletionAfterRepositoryReopen() = runBlocking {
-        val anchor = object : com.cosmic.ai.data.local.db.AuditHeadAnchor {
-            private var head: Head? = null
+        val anchor = object : AuditHeadAnchor {
+            private var head: AuditHeadAnchor.Head? = null
             override suspend fun read() = head
-            override suspend fun write(head: Head) { this.head = head }
+            override suspend fun write(head: AuditHeadAnchor.Head) { this.head = head }
         }
         val audit = SecurityAuditRepository(db, anchor)
         audit.record(null, "task", "tester", "tool", "read", "scope", "STARTED")
