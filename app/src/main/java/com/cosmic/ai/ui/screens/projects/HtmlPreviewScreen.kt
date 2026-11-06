@@ -172,8 +172,12 @@ internal fun securePreviewHtml(source: String): String {
     val viewport = "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=5\">"
     val head = Regex("(?i)<head(?:\\s[^>]*)?>")
     val injection = csp + if (Regex("(?i)<meta[^>]+name=[\"']viewport[\"']").containsMatchIn(source)) "" else viewport
-    return if (head.containsMatchIn(source)) source.replaceFirst(head) { it.value + injection }
-    else "<!doctype html><html><head>$injection</head><body>$source</body></html>"
+    val match = head.find(source)
+    return if (match != null) {
+        source.replaceRange(match.range, match.value + injection)
+    } else {
+        "<!doctype html><html><head>$injection</head><body>$source</body></html>"
+    }
 }
 
 private suspend fun readProjectHtml(context: Context, rootUri: Uri): Pair<String?, String?> {
@@ -186,9 +190,9 @@ private suspend fun readProjectHtml(context: Context, rootUri: Uri): Pair<String
         val input = context.contentResolver.openInputStream(file.uri) ?: return null to "Could not read index.html."
         val bytes = input.use { readCapped(it, MAX_HTML_BYTES) } ?: return null to "index.html exceeds the preview limit."
         bytes.toString(Charsets.UTF_8) to null
-    } catch (_: SecurityException) {
+    } catch (e: SecurityException) {
         null to "Access to the selected project folder was revoked. Select it again to preview."
-    } catch (_: Exception) {
+    } catch (e: Exception) {
         null to "Could not load the project preview."
     }
 }

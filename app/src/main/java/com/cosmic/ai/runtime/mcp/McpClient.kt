@@ -11,6 +11,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -172,7 +173,7 @@ class McpClientManager(
             candidate = session
             session.initialize()
             val discovered = session.listTools()
-            ensureActive()
+            currentCoroutineContext().ensureActive()
             publishConnectedSession(config.id, session, discovered)
             candidate = null
             setState(config.id, McpConnectionState.Connected(discovered.size))
@@ -197,7 +198,8 @@ class McpClientManager(
     fun launchScope(config: McpServerConfig): String {
         val canonical = JSONObject()
             .put("id", config.id).put("name", config.name).put("transport", config.transport.name)
-            .put("command", config.command ?: JSONObject.NULL).put("args", JSONArray(config.args))
+            .put("command", config.command ?: JSONObject.NULL)
+            .put("args", JSONArray().apply { config.args.forEach { put(it) } })
             .put("url", config.url ?: JSONObject.NULL).put("enabled", config.enabled)
             .put("headers", JSONObject().also { obj -> config.headers.toSortedMap().forEach { (k, v) -> obj.put(k, v) } })
             .put("env", JSONObject().also { obj -> config.env.toSortedMap().forEach { (k, v) -> obj.put(k, v) } })
