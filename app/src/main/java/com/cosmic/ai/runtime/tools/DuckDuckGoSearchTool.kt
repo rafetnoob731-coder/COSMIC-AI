@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-class DuckDuckGoSearchTool(
+internal class DuckDuckGoSearchTool(
     private val searchProvider: SearchProvider = DuckDuckGoSearchProvider()
 ) : Tool {
     override val definition = ToolDefinition(

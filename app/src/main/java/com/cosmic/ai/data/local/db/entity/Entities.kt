@@ -74,3 +74,51 @@ data class ToolExecutionEntity(
     val createdAt: Long,
     val updatedAt: Long
 )
+
+
+@Entity(tableName = "approval_requests", indices = [
+    androidx.room.Index(value = ["taskId", "callId"], unique = true),
+    androidx.room.Index(value = ["status", "createdAt"])
+])
+data class ApprovalRequestEntity(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val callId: String,
+    val agentId: String,
+    val toolName: String,
+    val action: String,
+    val resourceScope: String,
+    val riskLevel: String,
+    val reason: String,
+    val argumentsHash: String,
+    val status: String,
+    val decisionMode: String? = null,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val decidedAt: Long? = null,
+    val outcome: String? = null
+)
+
+@Entity(tableName = "security_audit_events", indices = [
+    androidx.room.Index(value = ["requestId", "occurredAt"]),
+    androidx.room.Index(value = ["decision", "occurredAt"]),
+    androidx.room.Index(value = ["toolName", "occurredAt"]),
+    androidx.room.Index(value = ["taskId", "occurredAt"]),
+    androidx.room.Index(value = ["sequence"])
+])
+data class SecurityAuditEventEntity(
+    @PrimaryKey val eventId: String,
+    val requestId: String?,
+    val taskId: String?,
+    val agentId: String?,
+    val toolName: String,
+    val action: String,
+    val resourceScope: String,
+    val decision: String,
+    val occurredAt: Long,
+    val outcome: String? = null,
+    val sanitizedError: String? = null,
+    @ColumnInfo(defaultValue = "0") val sequence: Long = 0,
+    @ColumnInfo(defaultValue = "''") val previousHash: String = "",
+    @ColumnInfo(defaultValue = "''") val eventHash: String = ""
+)

@@ -32,6 +32,9 @@ class PermissionGatewayTest {
         val g = PermissionGateway()
         val d = g.validateRelativePath("../etc/passwd")
         assertTrue(d is PermissionDecision.Deny)
+        assertTrue(g.validateRelativePath("src/\u0000/evil.kt") is PermissionDecision.Deny)
+        assertTrue(g.validateRelativePath("C:/Windows/system32") is PermissionDecision.Deny)
+        assertTrue(g.validateRelativePath("src/%2e%2e/etc/passwd") is PermissionDecision.Deny)
     }
 
     @Test
@@ -77,4 +80,64 @@ class PermissionGatewayTest {
         val g = PermissionGateway()
         assertFalse(g.allowLanCleartext())
     }
+
+    @Test
+    fun networkCanBeDeniedByPerOperationPolicy() {
+        val gateway = PermissionGateway()
+        val decision = gateway.check(
+            PermissionLevel.NETWORK,
+            "search",
+            "docs query",
+            SecurityPolicy(allowNetwork = false)
+        )
+        assertTrue(decision is PermissionDecision.Deny)
+    }
+
+    @Test
+    fun operationPolicyOverrideDoesNotChangeStoredPolicy() {
+        val gateway = PermissionGateway()
+        val decision = gateway.check(
+            PermissionLevel.EXECUTE,
+            "run_command",
+            "printf ok",
+            SecurityPolicy(allowExecute = true, requireApprovalExecute = false)
+        )
+        assertTrue(decision is PermissionDecision.Allow)
+        assertFalse(gateway.currentPolicy().allowExecute)
+    }
+
+    @Test
+    fun destructiveExecutionStillRequiresApprovalWithOverride() {
+        val gateway = PermissionGateway()
+        val decision = gateway.check(
+            PermissionLevel.EXECUTE,
+            "run_command",
+            "rm -r project",
+            SecurityPolicy(allowExecute = true, requireApprovalExecute = false)
+        )
+        assertTrue(decision is PermissionDecision.NeedsApproval)
+    }
+
+
+    @Test
+    fun approvalGrantOnlyAllowsExactActionAndScope() {
+        val gateway = PermissionGateway()
+        val policy = SecurityPolicy(allowWrite = true, requireApprovalWrite = true)
+        val grant = gateway.issueApprovalAuthorization("approval-id", "task-id", "call-id", "write_file", "exact-hash", System.currentTimeMillis() + 60_000)
+        assertTrue(gateway.check(PermissionLevel.WRITE, "write_file", "exact-hash", policy, grant, "task-id", "call-id") is PermissionDecision.Allow)
+        assertTrue(gateway.check(PermissionLevel.WRITE, "write_file", "exact-hash", policy, grant, "task-id", "call-id") is PermissionDecision.NeedsApproval)
+        val other = gateway.issueApprovalAuthorization("approval-id-2", "task-id", "call-id-2", "write_file", "exact-hash", System.currentTimeMillis() + 60_000)
+        assertTrue(gateway.check(PermissionLevel.WRITE, "write_file", "other-hash", policy, other, "task-id", "call-id-2") is PermissionDecision.NeedsApproval)
+        val wrongTask = gateway.issueApprovalAuthorization("approval-id-3", "task-id", "call-id-3", "different_tool", "exact-hash", System.currentTimeMillis() + 60_000)
+        assertTrue(gateway.check(PermissionLevel.WRITE, "different_tool", "exact-hash", policy, wrongTask, "other-task", "call-id-3") is PermissionDecision.NeedsApproval)
+    }
+
+    @Test
+    fun expiredApprovalDoesNotAuthorize() {
+        val gateway = PermissionGateway()
+        val policy = SecurityPolicy(allowWrite = true, requireApprovalWrite = true)
+        val grant = runCatching { gateway.issueApprovalAuthorization("approval-id", "task", "call", "write_file", "exact-hash", System.currentTimeMillis() - 1) }.getOrNull()
+        assertNull(grant)
+    }
+
 }

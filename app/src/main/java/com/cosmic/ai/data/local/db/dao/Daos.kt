@@ -11,6 +11,8 @@ import com.cosmic.ai.data.local.db.entity.ProviderEntity
 import com.cosmic.ai.data.local.db.entity.SessionEntity
 import com.cosmic.ai.data.local.db.entity.TaskEntity
 import com.cosmic.ai.data.local.db.entity.ToolExecutionEntity
+import com.cosmic.ai.data.local.db.entity.ApprovalRequestEntity
+import com.cosmic.ai.data.local.db.entity.SecurityAuditEventEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -100,6 +102,12 @@ interface ToolExecutionDao {
     @Query("SELECT * FROM tool_executions WHERE taskId = :taskId ORDER BY createdAt ASC")
     suspend fun forTask(taskId: String): List<ToolExecutionEntity>
 
+    @Query("SELECT * FROM tool_executions WHERE taskId = :taskId AND state = 'RUNNING'")
+    suspend fun runningForTask(taskId: String): List<ToolExecutionEntity>
+
+    @Query("SELECT * FROM tool_executions WHERE state = 'RUNNING'")
+    suspend fun running(): List<ToolExecutionEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entity: ToolExecutionEntity): Long
 
@@ -115,6 +123,76 @@ interface ToolExecutionDao {
     @Query("UPDATE tool_executions SET state = 'UNKNOWN', error = :error, updatedAt = :updatedAt WHERE taskId = :taskId AND state = 'RUNNING'")
     suspend fun markTaskRunningUnknown(taskId: String, error: String, updatedAt: Long): Int
 
+    @Query("UPDATE tool_executions SET state = :to, updatedAt = :updatedAt WHERE taskId = :taskId AND callId = :callId AND state = :from")
+    suspend fun transition(taskId: String, callId: String, from: String, to: String, updatedAt: Long): Int
+
     @Query("UPDATE tool_executions SET state = :state, resultJson = :result, error = :error, updatedAt = :updatedAt WHERE taskId = :taskId AND callId = :callId AND state = 'RUNNING'")
     suspend fun complete(taskId: String, callId: String, state: String, result: String?, error: String?, updatedAt: Long): Int
+}
+
+
+@Dao
+interface ApprovalRequestDao {
+    @Query("SELECT * FROM approval_requests WHERE status IN ('PENDING','APPROVED') ORDER BY createdAt ASC")
+    fun observeActionable(): Flow<List<ApprovalRequestEntity>>
+
+    @Query("SELECT * FROM approval_requests WHERE status = 'EXECUTING'")
+    suspend fun executing(): List<ApprovalRequestEntity>
+
+    @Query("SELECT * FROM approval_requests WHERE taskId = :taskId AND status IN ('PENDING','APPROVED','EXECUTING')")
+    suspend fun actionableForTask(taskId: String): List<ApprovalRequestEntity>
+
+    @Query("SELECT * FROM approval_requests WHERE id = :id")
+    suspend fun get(id: String): ApprovalRequestEntity?
+
+    @Query("SELECT * FROM approval_requests WHERE status IN ('PENDING','APPROVED') AND expiresAt <= :at")
+    suspend fun expired(at: Long): List<ApprovalRequestEntity>
+
+    @Query("SELECT * FROM approval_requests WHERE taskId = :taskId AND callId = :callId")
+    suspend fun byCall(taskId: String, callId: String): ApprovalRequestEntity?
+
+    @Query("SELECT * FROM approval_requests WHERE toolName = :toolName AND resourceScope = :resourceScope AND status IN ('PENDING','APPROVED') ORDER BY createdAt DESC LIMIT 1")
+    suspend fun activeForScope(toolName: String, resourceScope: String): ApprovalRequestEntity?
+
+    @Query("SELECT * FROM approval_requests WHERE taskId = :taskId AND toolName = :toolName AND argumentsHash = :argumentsHash AND status = 'COMPLETED' AND decisionMode = 'ALLOW_FOR_TASK' AND expiresAt > :now ORDER BY decidedAt DESC LIMIT 1")
+    suspend fun matchingTaskGrant(taskId: String, toolName: String, argumentsHash: String, now: Long): ApprovalRequestEntity?
+
+    @Query("UPDATE approval_requests SET status = :status, decisionMode = :mode, decidedAt = :at, outcome = :outcome WHERE id = :id AND status = :from")
+    suspend fun transition(id: String, from: String, status: String, mode: String?, at: Long, outcome: String?): Int
+
+    @Query("UPDATE approval_requests SET status = 'EXPIRED', decidedAt = :at, outcome = 'Approval expired; execution was not started' WHERE status IN ('PENDING','APPROVED') AND expiresAt <= :at")
+    suspend fun expire(at: Long): Int
+
+    @Query("UPDATE approval_requests SET status = 'CANCELLED', decidedAt = :at, outcome = :outcome WHERE id = :id AND status = 'PENDING'")
+    suspend fun cancel(id: String, at: Long, outcome: String): Int
+
+    @androidx.room.Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(request: ApprovalRequestEntity): Long
+}
+
+@Dao
+interface SecurityAuditDao {
+    @Query("SELECT * FROM security_audit_events ORDER BY sequence DESC, occurredAt DESC")
+    fun observeAll(): Flow<List<SecurityAuditEventEntity>>
+
+    @Query("SELECT * FROM security_audit_events WHERE decision = :decision ORDER BY sequence DESC")
+    fun observeByDecision(decision: String): Flow<List<SecurityAuditEventEntity>>
+
+    @Query("SELECT * FROM security_audit_events WHERE (toolName LIKE '%' || :query || '%' OR action LIKE '%' || :query || '%' OR resourceScope LIKE '%' || :query || '%' OR agentId LIKE '%' || :query || '%' OR taskId LIKE '%' || :query || '%') ORDER BY sequence DESC")
+    fun search(query: String): Flow<List<SecurityAuditEventEntity>>
+
+    @androidx.room.Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(event: SecurityAuditEventEntity)
+
+    @Query("SELECT * FROM security_audit_events ORDER BY sequence ASC")
+    suspend fun allBySequence(): List<SecurityAuditEventEntity>
+
+    @Query("SELECT * FROM security_audit_events ORDER BY occurredAt ASC, eventId ASC")
+    suspend fun allChronologically(): List<SecurityAuditEventEntity>
+
+    @Query("SELECT * FROM security_audit_events ORDER BY sequence DESC LIMIT 1")
+    suspend fun latest(): SecurityAuditEventEntity?
+
+    @androidx.room.Update
+    suspend fun update(event: SecurityAuditEventEntity): Int
 }

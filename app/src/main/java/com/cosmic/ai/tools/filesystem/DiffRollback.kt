@@ -32,7 +32,7 @@ object CheckpointStore {
     fun remove(id: String) { map.remove(id) }
 }
 
-class DiffFileTool(
+internal class DiffFileTool(
     private val context: Context,
     private val gateway: PermissionGateway
 ) : Tool {
@@ -75,7 +75,7 @@ class DiffFileTool(
     }
 }
 
-class WriteFileWithCheckpointTool(
+internal class WriteFileWithCheckpointTool(
     private val context: Context,
     private val gateway: PermissionGateway
 ) : Tool {
@@ -102,7 +102,7 @@ class WriteFileWithCheckpointTool(
         return perform(argsJson, projectUri)
     }
 
-    suspend fun perform(argsJson: String, projectUri: Uri): ToolResult = withContext(Dispatchers.IO) {
+    private suspend fun perform(argsJson: String, projectUri: Uri): ToolResult = withContext(Dispatchers.IO) {
         try {
             val json = JSONObject(argsJson)
             val path = json.getString("path")
@@ -138,7 +138,7 @@ class WriteFileWithCheckpointTool(
     }
 }
 
-class RollbackFileTool(
+internal class RollbackFileTool(
     private val context: Context,
     private val gateway: PermissionGateway
 ) : Tool {

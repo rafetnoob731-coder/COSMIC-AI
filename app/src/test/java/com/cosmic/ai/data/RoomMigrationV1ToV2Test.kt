@@ -40,7 +40,7 @@ class RoomMigrationV1ToV2Test {
         raw.version = 1
         raw.close()
         database = Room.databaseBuilder(context, CosmicDatabase::class.java, databaseName)
-            .addMigrations(CosmicDatabase.MIGRATION_1_2)
+            .addMigrations(CosmicDatabase.MIGRATION_1_2, CosmicDatabase.MIGRATION_2_3, CosmicDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
     }
@@ -61,5 +61,7 @@ class RoomMigrationV1ToV2Test {
         database.openHelper.writableDatabase.query("SELECT * FROM tool_executions").use { rows ->
             assertEquals(0, rows.count)
         }
+        database.openHelper.writableDatabase.query("SELECT * FROM approval_requests").use { rows -> assertEquals(0, rows.count) }
+        database.openHelper.writableDatabase.query("SELECT * FROM security_audit_events").use { rows -> assertEquals(0, rows.count) }
     }
 }

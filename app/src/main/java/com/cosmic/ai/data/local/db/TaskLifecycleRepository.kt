@@ -5,9 +5,11 @@ import com.cosmic.ai.core.state.TaskTransitions
 import com.cosmic.ai.data.local.db.entity.TaskEntity
 import com.cosmic.ai.data.local.db.entity.MessageEntity
 import com.cosmic.ai.data.local.db.entity.ToolExecutionEntity
+import com.cosmic.ai.data.local.db.entity.SecurityAuditEventEntity
 import com.cosmic.ai.domain.agent.TaskStatus
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 class TaskLifecycleRepository(private val database: CosmicDatabase) {
     suspend fun create(task: TaskEntity, initialMessage: MessageEntity? = null) = database.withTransaction {
@@ -86,9 +88,14 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
             transitionHistoryJson = history.toString(),
             updatedAt = now
         ))
+        val runningCalls = database.toolExecutionDao().runningForTask(taskId)
         database.toolExecutionDao().markTaskRunningUnknown(
             taskId, "Process ended while tool was running; automatic replay prevented", now
         )
+        runningCalls.forEach { call -> SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", call.toolName,
+            "invoke", auditResource(call.toolName, call.argumentsJson), "UNKNOWN", now, "Process interruption; not replayed", null
+        )) }
         true
     }
 
@@ -109,7 +116,12 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
             ))
             task.id
         }
+        val runningCalls = database.toolExecutionDao().running()
         database.toolExecutionDao().markRunningUnknown(now)
+        runningCalls.forEach { call -> SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, call.taskId, "orchestrator", call.toolName,
+            "invoke", auditResource(call.toolName, call.argumentsJson), "UNKNOWN", now, "Process interruption; not replayed", null
+        )) }
         ids
     }
 
@@ -127,6 +139,10 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
         val record = ToolExecutionEntity(taskId, callId, toolName, argsJson, argsHash,
             "PREPARED", idempotent, createdAt = now, updatedAt = now)
         database.toolExecutionDao().insert(record)
+        SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", toolName,
+            "invoke", auditResource(toolName, argsJson), "TOOL_REQUESTED", now, "Prepared", null
+        ))
         record
     }
 
@@ -135,7 +151,12 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
         when (record.state) {
             "SUCCEEDED", "FAILED", "UNKNOWN", "NEEDS_APPROVAL" -> return@withTransaction record
             "RUNNING" -> {
-                database.toolExecutionDao().setState(taskId, callId, "UNKNOWN", "Execution outcome is unknown; automatic replay prevented", System.currentTimeMillis())
+                val now = System.currentTimeMillis()
+                database.toolExecutionDao().setState(taskId, callId, "UNKNOWN", "Execution outcome is unknown; automatic replay prevented", now)
+                SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+                    UUID.randomUUID().toString(), null, taskId, "orchestrator", record.toolName,
+                    "invoke", auditResource(record.toolName, record.argumentsJson), "UNKNOWN", now, "Duplicate execution prevented", null
+                ))
                 return@withTransaction record.copy(state = "UNKNOWN", error = "Execution outcome is unknown; automatic replay prevented")
             }
             "PREPARED" -> Unit
@@ -144,6 +165,10 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
         val now = System.currentTimeMillis()
         val updated = database.toolExecutionDao().compareAndSetState(taskId, callId, record.state, "RUNNING", now)
         if (updated != 1) error("Tool call was claimed by another execution")
+        SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", record.toolName,
+            "invoke", auditResource(record.toolName, record.argumentsJson), "EXECUTION_CLAIMED", now, null, null
+        ))
         record.copy(state = "RUNNING", updatedAt = now)
     }
 
@@ -151,11 +176,39 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
         val record = database.toolExecutionDao().get(taskId, callId) ?: return@withTransaction false
         if (record.state == "SUCCEEDED") return@withTransaction record.resultJson == resultJson
         if (record.state != "RUNNING") return@withTransaction false
-        database.toolExecutionDao().complete(taskId, callId, "SUCCEEDED", resultJson, null, System.currentTimeMillis()) == 1
+        val now = System.currentTimeMillis()
+        val changed = database.toolExecutionDao().complete(taskId, callId, "SUCCEEDED", resultJson, null, now) == 1
+        if (changed) SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", record.toolName,
+            "invoke", auditResource(record.toolName, record.argumentsJson), "EXECUTION_COMPLETED", now, "Tool result persisted", null
+        ))
+        changed
+    }
+
+    suspend fun markToolUnknown(taskId: String, callId: String, reason: String): Boolean = database.withTransaction {
+        val record = database.toolExecutionDao().get(taskId, callId) ?: return@withTransaction false
+        if (record.state != "RUNNING") return@withTransaction record.state == "UNKNOWN"
+        val now = System.currentTimeMillis()
+        val safe = com.cosmic.ai.security.SensitiveTextRedactor.redact(reason).take(300)
+        val changed = database.toolExecutionDao().setState(taskId, callId, "UNKNOWN", safe, now) == 1
+        if (changed) SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", record.toolName,
+            "invoke", auditResource(record.toolName, record.argumentsJson), "UNKNOWN", now,
+            "Execution may have produced side effects; automatic retry blocked", safe
+        ))
+        changed
     }
 
     suspend fun failToolCall(taskId: String, callId: String, error: String): Boolean = database.withTransaction {
-        database.toolExecutionDao().complete(taskId, callId, "FAILED", null, error.take(500), System.currentTimeMillis()) == 1
+        val record = database.toolExecutionDao().get(taskId, callId) ?: return@withTransaction false
+        val now = System.currentTimeMillis()
+        val changed = database.toolExecutionDao().complete(taskId, callId, "FAILED", null,
+            com.cosmic.ai.security.SensitiveTextRedactor.redact(error).take(300), now) == 1
+        if (changed) SecurityAuditRepository(database).append(SecurityAuditEventEntity(
+            UUID.randomUUID().toString(), null, taskId, "orchestrator", record.toolName,
+            "invoke", auditResource(record.toolName, record.argumentsJson), "EXECUTION_FAILED", now, "Tool failed", com.cosmic.ai.security.SensitiveTextRedactor.redact(error).take(300)
+        ))
+        changed
     }
 
     suspend fun markApproval(taskId: String, callId: String): Boolean = database.withTransaction {
@@ -167,6 +220,16 @@ class TaskLifecycleRepository(private val database: CosmicDatabase) {
     }
 
     suspend fun toolCalls(taskId: String): List<ToolExecutionEntity> = database.toolExecutionDao().forTask(taskId)
+
+    private fun auditResource(toolName: String, argsJson: String): String {
+        val args = runCatching { JSONObject(argsJson) }.getOrNull() ?: return toolName.take(200)
+        val value = when (toolName) {
+            "run_command" -> args.optString("command", toolName)
+            "read_file", "write_file", "list_files" -> args.optString("path", "project root")
+            else -> toolName
+        }
+        return com.cosmic.ai.security.SensitiveTextRedactor.redact(value).take(300)
+    }
 
     private fun transitionRecord(status: TaskStatus, at: Long, detail: String) =
         JSONObject().put("status", status.name).put("at", at).put("detail", detail.take(300))

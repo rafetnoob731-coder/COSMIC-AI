@@ -30,6 +30,9 @@ class SecureStore(context: Context) {
         prefs.edit().putString(alias, value).apply()
     }
 
+    /** Synchronous durable checkpoint write, used only for security audit head anchoring. */
+    fun putSecretDurably(alias: String, value: String): Boolean = prefs.edit().putString(alias, value).commit()
+
     fun getSecret(alias: String): String? = prefs.getString(alias, null)
 
     fun removeSecret(alias: String) {

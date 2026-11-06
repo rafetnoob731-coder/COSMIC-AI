@@ -370,12 +370,11 @@ private fun McpSection() {
     val mcp = remember { CosmicApplication.instance.mcpManager }
     val states by mcp.states.collectAsState()
     val tools by mcp.tools.collectAsState()
+    val servers by mcp.configurations.collectAsState()
     var name by remember { mutableStateOf("") }
     var command by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var transport by remember { mutableStateOf(McpTransport.STDIO) }
-    val scope = rememberCoroutineScope()
-    val servers = remember { mutableStateListOf<McpServerConfig>() }
 
     Column(
         modifier = Modifier
@@ -408,6 +407,10 @@ private fun McpSection() {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { mcp.connect(s) }) { Text("Connect") }
                         TextButton(onClick = { mcp.disconnect(s.id) }) { Text("Disconnect") }
+                        TextButton(onClick = {
+                            mcp.removeConfiguration(s.id)
+                            CosmicApplication.instance.mcpServerConfigStore.save(mcp.configurations.value)
+                        }) { Text("Remove") }
                     }
                 }
             }
@@ -441,7 +444,8 @@ private fun McpSection() {
                     command = command.ifBlank { null },
                     url = url.ifBlank { null }
                 )
-                servers.add(cfg)
+                mcp.upsertConfiguration(cfg)
+                CosmicApplication.instance.mcpServerConfigStore.save(mcp.configurations.value)
                 mcp.connect(cfg)
                 name = ""; command = ""; url = ""
             },
@@ -452,11 +456,14 @@ private fun McpSection() {
 
 @Composable
 private fun PermissionsSection() {
-    var fileRead by remember { mutableStateOf(true) }
-    var fileWrite by remember { mutableStateOf(false) }
-    var terminal by remember { mutableStateOf(false) }
-    var network by remember { mutableStateOf(true) }
-    var approval by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val preferences = remember(context) { com.cosmic.ai.data.local.datastore.AppPreferences(context) }
+    val scope = rememberCoroutineScope()
+    val fileRead by preferences.allowFileRead.collectAsState(initial = true)
+    val fileWrite by preferences.allowFileWrite.collectAsState(initial = false)
+    val terminal by preferences.allowTerminal.collectAsState(initial = false)
+    val network by preferences.allowNetwork.collectAsState(initial = true)
+    val approval by preferences.requireApproval.collectAsState(initial = true)
 
     Column(
         modifier = Modifier
@@ -471,11 +478,11 @@ private fun PermissionsSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        PermRow("File read", fileRead) { fileRead = it }
-        PermRow("File write", fileWrite) { fileWrite = it }
-        PermRow("Terminal", terminal) { terminal = it }
-        PermRow("Network", network) { network = it }
-        PermRow("Require approval for destructive", approval) { approval = it }
+        PermRow("File read", fileRead) { value -> scope.launch { preferences.setPermission("file_read", value) } }
+        PermRow("File write", fileWrite) { value -> scope.launch { preferences.setPermission("file_write", value) } }
+        PermRow("Terminal", terminal) { value -> scope.launch { preferences.setPermission("terminal", value) } }
+        PermRow("Network", network) { value -> scope.launch { preferences.setPermission("network", value) } }
+        PermRow("Require approval for destructive", approval) { value -> scope.launch { preferences.setPermission("approval", value) } }
     }
 }
 

@@ -115,15 +115,15 @@ class AnthropicProvider(
                     when (json.optString("type")) {
                         "content_block_delta" -> {
                             val delta = json.optJSONObject("delta")
-                            val text = delta?.optString("text", "") ?: ""
-                            if (text.isNotEmpty()) trySend(ChatEvent.Delta(text))
+                            val text = delta?.opt("text") as? String
+                            if (!text.isNullOrEmpty()) trySend(ChatEvent.Delta(text))
                         }
                         "message_delta" -> {
                             val delta = json.optJSONObject("delta")
                             val stop = delta?.optString("stop_reason")
                             if (!stop.isNullOrBlank()) trySend(ChatEvent.Finished(stop))
                         }
-                        "error" -> trySend(ChatEvent.Error(json.optJSONObject("error")?.optString("message") ?: "error"))
+                        "error" -> trySend(ChatEvent.Error(json.optJSONObject("error")?.opt("message") as? String ?: "Provider error"))
                     }
                 } catch (_: Exception) { }
             }

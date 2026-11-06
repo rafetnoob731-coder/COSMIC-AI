@@ -121,8 +121,8 @@ class GeminiProvider(
                     val content = candidates.getJSONObject(0).optJSONObject("content")
                     val parts = content?.optJSONArray("parts") ?: continue
                     for (i in 0 until parts.length()) {
-                        val text = parts.getJSONObject(i).optString("text", "")
-                        if (text.isNotEmpty()) trySend(ChatEvent.Delta(text))
+                        val text = parts.getJSONObject(i).opt("text") as? String
+                        if (!text.isNullOrEmpty()) trySend(ChatEvent.Delta(text))
                     }
                     val finish = candidates.getJSONObject(0).optString("finishReason", "")
                     if (finish.isNotEmpty()) trySend(ChatEvent.Finished(finish))

@@ -19,9 +19,15 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
+
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+
+private fun JSONObject.optionalString(name: String): String? = when (val value = opt(name)) {
+    is String -> value
+    else -> null // Do not turn JSONObject.NULL/missing values into the literal "null".
+}
 
 class OpenAiCompatibleProvider(
     private val client: OkHttpClient = defaultClient()
@@ -114,8 +120,11 @@ class OpenAiCompatibleProvider(
                     if (choices.length() == 0) return
                     val choice = choices.getJSONObject(0)
                     val delta = choice.optJSONObject("delta") ?: return
-                    val content = delta.optString("content", "")
-                    if (content.isNotEmpty()) {
+                    // Tool-call chunks commonly contain content:null. JSONObject.optString
+                    // stringifies that sentinel to "null", which used to stream as
+                    // repeated "nullnull..." text.
+                    val content = delta.optionalString("content")
+                    if (!content.isNullOrEmpty()) {
                         trySend(ChatEvent.Delta(content))
                     }
                     val toolCalls = delta.optJSONArray("tool_calls")
@@ -126,9 +135,9 @@ class OpenAiCompatibleProvider(
                             trySend(
                                 ChatEvent.ToolCallDelta(
                                     index = tc.optInt("index", i),
-                                    id = tc.optString("id").takeIf { it.isNotBlank() },
-                                    nameFragment = fn?.optString("name")?.takeIf { it.isNotBlank() },
-                                    argumentsFragment = fn?.optString("arguments")?.takeIf { it.isNotEmpty() }
+                                    id = tc.optionalString("id")?.takeIf { it.isNotBlank() },
+                                    nameFragment = fn?.optionalString("name")?.takeIf { it.isNotBlank() },
+                                    argumentsFragment = fn?.optionalString("arguments")?.takeIf { it.isNotEmpty() }
                                 )
                             )
                         }
@@ -192,7 +201,7 @@ class OpenAiCompatibleProvider(
                     val json = JSONObject(body)
                     val choice = json.getJSONArray("choices").getJSONObject(0)
                     val message = choice.getJSONObject("message")
-                    val content = message.optString("content", "")
+                    val content = message.optionalString("content").orEmpty()
                     val toolCallsJson = message.optJSONArray("tool_calls")
                     val toolCalls = mutableListOf<ToolCall>()
                     if (toolCallsJson != null) {
@@ -201,9 +210,10 @@ class OpenAiCompatibleProvider(
                             val fn = tc.getJSONObject("function")
                             toolCalls.add(
                                 ToolCall(
-                                    id = tc.optString("id"),
+                                    id = tc.optionalString("id") ?: throw IOException("Tool call is missing its ID"),
                                     name = fn.getString("name"),
-                                    arguments = fn.optString("arguments", "{}")
+                                    arguments = fn.optionalString("arguments")
+                                        ?: throw IOException("Tool call arguments are missing")
                                 )
                             )
                         }

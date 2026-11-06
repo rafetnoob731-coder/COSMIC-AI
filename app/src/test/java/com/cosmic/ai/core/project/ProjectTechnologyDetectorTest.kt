@@ -39,5 +39,10 @@ class ProjectTechnologyDetectorTest {
     @Test fun runtimeCatalogOnlyDescribesCandidatesAndUnknownLanguageIsUnsupported() {
         assertEquals(null, RuntimeCatalog.forLanguage("Brainfuck"))
         assertTrue(RuntimeCatalog.forLanguage("Rust")!!.executables.contains("cargo"))
+        val unsupported = RuntimeCatalog.unsupported("HTML", detected = true)
+        assertTrue(unsupported.languageDetected)
+        assertTrue(!unsupported.runtimeInstalled)
+        assertTrue(!unsupported.executionSupported && !unsupported.buildSupported && !unsupported.testSupported)
+        assertEquals(setOf("Python", "JavaScript", "TypeScript", "Java", "Kotlin", "C", "C++", "C#", "Go", "Rust", "PHP", "Ruby", "Swift", "Dart"), RuntimeCatalog.definitions.map { it.language }.toSet())
     }
 }

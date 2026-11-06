@@ -22,7 +22,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.cosmic.ai.runtime.tools.RunCommandTool
+import com.cosmic.ai.CosmicApplication
+import com.cosmic.ai.data.local.datastore.AppPreferences
+import com.cosmic.ai.data.local.db.SecurityAuditRepository
+import com.cosmic.ai.security.ApprovalAuthorization
+import java.util.UUID
+import com.cosmic.ai.domain.agent.PermissionPolicy
+import com.cosmic.ai.runtime.tools.ToolRegistry
 import com.cosmic.ai.runtime.tools.ToolResult
 import com.cosmic.ai.ui.theme.CodexPalette
 import com.cosmic.ai.ui.theme.CosmicBackdrop
@@ -40,36 +46,114 @@ fun TerminalScreen(onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var lastExitCode by remember { mutableStateOf<Int?>(null) }
     var lastSucceeded by remember { mutableStateOf(true) }
-    val tool = remember { RunCommandTool(context) }
+    val preferences = remember(context) { AppPreferences(context) }
+    val terminalAllowed by preferences.allowTerminal.collectAsState(initial = false)
+    val requireApproval by preferences.requireApproval.collectAsState(initial = true)
+    val tools = remember(context) { ToolRegistry(context, CosmicApplication.instance.permissionGateway) }
     val history = remember { mutableStateListOf<String>() }
+    val audit = remember { SecurityAuditRepository(CosmicApplication.instance.database) }
+    val pendingApprovals by CosmicApplication.instance.agentRuntime.pendingApprovals().collectAsState(initial = emptyList())
+    var terminalRequestId by remember { mutableStateOf<String?>(null) }
+    var terminalCommand by remember { mutableStateOf<String?>(null) }
+    var approvalDetails by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
-    fun runCommand(value: String) {
-        if (value.isBlank() || running) return
+    fun auditScope(commandText: String): String {
+        val json = """{"command":${org.json.JSONObject.quote(commandText)}}"""
+        return "command sha256:${tools.approvalScope("run_command", json).take(16)}"
+    }
+    fun runCommand(value: String, authorization: ApprovalAuthorization? = null) {
+        if (value.isBlank() || running || pendingApprovals.any { it.agentId == "terminal" }) return
         val submitted = value.trim()
         history.add(submitted)
         command = ""
         running = true
         scope.launch {
-            val result = tool.performRun("""{"command":${org.json.JSONObject.quote(submitted)}}""")
+            val args = """{"command":${org.json.JSONObject.quote(submitted)}}"""
+            val policy = PermissionPolicy(
+                allowFileRead = false,
+                allowFileWrite = false,
+                allowTerminal = terminalAllowed,
+                allowNetwork = false,
+                requireApprovalForDestructive = requireApproval
+            )
+            val operationId = authorization?.requestId ?: UUID.randomUUID().toString()
+            val result = tools.execute("run_command", args, policy, null, authorization,
+                if (authorization == null) null else "terminal:${authorization.requestId}",
+                if (authorization == null) null else authorization.requestId,
+                onAuthorized = {
+                    audit.record(operationId, if (authorization == null) null else "terminal:${authorization.requestId}",
+                        "user", "run_command", "execute", auditScope(submitted), "EXECUTION_STARTED")
+                })
             when (result) {
                 is ToolResult.Success -> {
                     output += if (output.isBlank()) "$ $submitted\n${result.output}\n" else "\n$ $submitted\n${result.output}\n"
                     lastExitCode = Regex("""exit=(-?\d+)""").find(result.output)?.groupValues?.getOrNull(1)?.toIntOrNull()
                     lastSucceeded = lastExitCode == 0
+                    audit.record(operationId, null, "user", "run_command", "execute", auditScope(submitted), "EXECUTION_COMPLETED", "exit=${lastExitCode ?: "unknown"}")
+                }
+                is ToolResult.Unknown -> {
+                    output += "\n$ $submitted\nOUTCOME UNKNOWN: ${result.reason}\n"
+                    lastExitCode = null
+                    lastSucceeded = false
+                    audit.record(operationId, null, "user", "run_command", "execute", auditScope(submitted), "OUTCOME_UNKNOWN", error = result.reason)
                 }
                 is ToolResult.Failure -> {
                     output += "\n$ $submitted\nERROR: ${result.error}\n"
                     lastExitCode = null
                     lastSucceeded = false
+                    audit.record(operationId, null, "user", "run_command", "execute", auditScope(submitted), "EXECUTION_FAILED", error = result.error)
                 }
                 is ToolResult.NeedsApproval -> {
-                    output += "\n$ $submitted\nApproval required: ${result.reason}\n"
+                    val request = CosmicApplication.instance.agentRuntime.requestTerminalApproval(submitted, result.reason)
+                    terminalCommand = submitted
+                    terminalRequestId = request.id
                     lastExitCode = null
                     lastSucceeded = false
                 }
             }
             running = false
         }
+    }
+    LaunchedEffect(terminalRequestId) {
+        val requestId = terminalRequestId ?: return@LaunchedEffect
+        CosmicApplication.instance.agentRuntime.events.collect { event ->
+            if (event is com.cosmic.ai.runtime.agent.AgentUiEvent.ApprovalResolved && event.requestId == requestId) {
+                if (event.status == "COMPLETED") {
+                    output += "\n$ ${terminalCommand ?: "approved command"}\n${event.result.orEmpty()}\n"
+                    lastSucceeded = Regex("""exit=(-?\d+)""").find(event.result.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull() == 0
+                } else if (event.status in setOf("DENIED", "CANCELLED", "EXPIRED", "FAILED", "UNKNOWN")) {
+                    output += "\n${event.status}: ${event.message}\n"
+                    lastSucceeded = false
+                }
+                if (event.status in setOf("DENIED", "CANCELLED", "EXPIRED", "FAILED", "UNKNOWN", "COMPLETED")) {
+                    terminalRequestId = null
+                    terminalCommand = null
+                }
+            }
+        }
+    }
+    val activeRequest = pendingApprovals.firstOrNull { it.agentId == "terminal" }
+    if (activeRequest != null) {
+        LaunchedEffect(activeRequest.id) {
+            approvalDetails = CosmicApplication.instance.agentRuntime.approvalDetails(activeRequest.id)
+            terminalRequestId = activeRequest.id
+        }
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Terminal permission required") },
+            text = { Text("${approvalDetails.ifBlank { "Loading exact operation…" }}\n\nReason: ${activeRequest.reason}\n\nThis approval is bound to this exact command and expires in ten minutes.") },
+            confirmButton = {
+                if (activeRequest.status == "PENDING") {
+                    TextButton(onClick = { CosmicApplication.instance.agentRuntime.resolveApproval(activeRequest.id, false) }) { Text("Deny") }
+                    TextButton(onClick = { CosmicApplication.instance.agentRuntime.resolveApproval(activeRequest.id, true) }) { Text("Allow once") }
+                } else {
+                    TextButton(onClick = { CosmicApplication.instance.agentRuntime.continueApprovedApproval(activeRequest.id) }) { Text("Continue") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { CosmicApplication.instance.agentRuntime.cancelApproval(activeRequest.id) }) { Text("Cancel") }
+            }
+        )
     }
     LaunchedEffect(output) { scroll.animateScrollTo(scroll.maxValue) }
 

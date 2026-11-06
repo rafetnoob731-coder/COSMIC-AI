@@ -22,6 +22,7 @@ import com.cosmic.ai.ui.screens.welcome.SplashScreen
 import com.cosmic.ai.ui.screens.mcp.McpScreen
 import com.cosmic.ai.ui.screens.memory.MemoryScreen
 import com.cosmic.ai.ui.screens.projects.ProjectsScreen
+import com.cosmic.ai.ui.screens.projects.HtmlPreviewScreen
 import com.cosmic.ai.ui.screens.sessions.SessionsScreen
 import com.cosmic.ai.ui.screens.settings.SettingsScreen
 import com.cosmic.ai.ui.screens.tasks.TasksScreen
@@ -36,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import com.cosmic.ai.ui.screens.workflows.WorkflowsScreen
+import com.cosmic.ai.ui.screens.security.SecurityCenterScreen
 
 object Routes {
     const val WELCOME = "welcome"
@@ -44,6 +46,7 @@ object Routes {
     const val HOME = "home"
     const val AGENT = "agent"
     const val PROJECTS = "projects"
+    const val HTML_PREVIEW = "html-preview"
     const val TERMINAL = "terminal"
     const val AGENTS = "agents"
     const val TASKS = "tasks"
@@ -55,6 +58,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val UPDATE = "update"
     const val BUGS = "bugs"
+    const val SECURITY = "security"
 }
 
 @Composable
@@ -139,6 +143,7 @@ fun CosmicNavGraph(navController: NavHostController) {
             )
         }
         composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
+        composable(Routes.HTML_PREVIEW) { HtmlPreviewScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.TERMINAL) { TerminalScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.AGENTS) { AgentsScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.TASKS) { TasksScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
@@ -152,6 +157,7 @@ fun CosmicNavGraph(navController: NavHostController) {
         composable(Routes.MCP) { McpScreen(onBack = { navController.popBackStack() }, onSettings = { navController.navigate(Routes.SETTINGS) }) }
         composable(Routes.MEMORY) { MemoryScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.BACKGROUND) { BackgroundTasksScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.SECURITY) { SecurityCenterScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.SETTINGS) { SettingsScreen(onBack = { navController.popBackStack() }, onAbout = { navController.navigate(Routes.ABOUT) }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.ABOUT) { AboutScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) }) }
         composable(Routes.BUGS) {

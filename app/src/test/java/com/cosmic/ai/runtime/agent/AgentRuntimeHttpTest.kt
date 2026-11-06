@@ -144,6 +144,35 @@ class AgentRuntimeHttpTest {
         assertEquals(listOf("hi", "Recovered"), database.messageDao().getForSession("recovery-session").map { it.content })
     }
 
+    @Test fun failedToolIsPersistedAndStopsFurtherModelGeneration() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("""
+            data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-exit","function":{"name":"run_command","arguments":"{\"command\":\"exit 7\"}"}}]},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+        """.trimIndent()))
+        val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { "test-key" }, McpClientManager(),
+            { OpenAiCompatibleProvider() }, enqueueTaskWork = { _, _ -> })
+        runtime.updatePolicy(com.cosmic.ai.domain.agent.PermissionPolicy(
+            allowTerminal = true, requireApprovalForDestructive = false
+        ))
+        val done = CompletableDeferred<AgentUiEvent>()
+        val collector = CoroutineScope(coroutineContext).launch {
+            runtime.events.collect { event -> if (event is AgentUiEvent.Failed || event is AgentUiEvent.Completed) done.complete(event) }
+        }
+        val config = ProviderConfig("test", "Mock OpenAI", ProviderType.OPENAI_COMPATIBLE,
+            server.url("/v1").toString().trimEnd('/'), "api-key", "test-model")
+        runtime.run("failure-session", "run the command", config, "test-model")
+        val result = withTimeout(10_000) { done.await() }
+        assertTrue("Non-zero tool exit must fail the task, got $result", result is AgentUiEvent.Failed)
+        assertEquals("FAILED", database.taskDao().getById((result as AgentUiEvent.Failed).taskId!!)?.status)
+        assertEquals("Only the initial model call may run after the tool failure", 1, server.requestCount)
+        assertTrue(database.messageDao().getForSession("failure-session").any { it.role == "tool" && it.content.contains("exit=7") })
+        collector.cancel()
+    }
+
     @Test fun missingCredentialFailsWithConfigurationErrorInsteadOfGenericIncompleteMessage() = runBlocking {
         val runtime = AgentRuntime(RuntimeEnvironment.getApplication(), database, { null }, McpClientManager(), enqueueTaskWork = { _, _ -> })
         val done = CompletableDeferred<AgentUiEvent>()

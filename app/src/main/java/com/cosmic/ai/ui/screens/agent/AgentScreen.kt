@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,6 +64,7 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
     var conversationSearch by remember { mutableStateOf("") }
     var conversationActions by remember { mutableStateOf(false) }
     val storedMessages by db.messageDao().observeForSession(sessionId).collectAsState(initial = emptyList())
+    val pendingApprovals by runtime.pendingApprovals().collectAsState(initial = emptyList())
     var input by remember { mutableStateOf("") }
     var attachmentName by remember { mutableStateOf<String?>(null) }
     var attachmentText by remember { mutableStateOf<String?>(null) }
@@ -79,7 +81,12 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
     val selectedProvider = providers.firstOrNull { it.id == providerId }
         ?: providers.firstOrNull { it.isDefault }
         ?: providers.firstOrNull()
-    val messages = storedMessages.map { it.toChatMessage() }
+    val messages = storedMessages
+        .filterNot { it.role == "assistant" && it.content.isBlank() && !it.toolCallsJson.isNullOrBlank() }
+        .map { it.toChatMessage() }
+    val recentSessions = remember(sessions, conversationSearch) {
+        sessions.filter { it.title.contains(conversationSearch, ignoreCase = true) }
+    }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             try {
@@ -138,7 +145,17 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                     com.cosmic.ai.domain.agent.StepType.SUMMARY -> "Reviewing the result"
                     com.cosmic.ai.domain.agent.StepType.REASONING -> "Working on the request"
                 }
+                is AgentUiEvent.StateChanged -> {
+                    status = event.detail
+                    busy = event.state !in setOf(
+                        com.cosmic.ai.runtime.agent.AgentExecutionState.WAITING_FOR_APPROVAL,
+                        com.cosmic.ai.runtime.agent.AgentExecutionState.CANCELLED,
+                        com.cosmic.ai.runtime.agent.AgentExecutionState.COMPLETED,
+                        com.cosmic.ai.runtime.agent.AgentExecutionState.TOOL_FAILED
+                    )
+                }
                 is AgentUiEvent.NeedsApproval -> { status = "Approval required: ${event.toolName}"; busy = false }
+                is AgentUiEvent.ApprovalResolved -> { status = "${event.status}: ${event.message}"; busy = false }
                 is AgentUiEvent.Completed -> { status = "Completed · ${event.taskId.take(8)}"; busy = false; streaming = "" }
                 is AgentUiEvent.Failed -> { status = event.message; executionId = event.taskId; busy = false }
                 is AgentUiEvent.Cancelled -> { status = "Cancelled${executionId?.let { " · ${it.take(8)}" } ?: ""}"; busy = false }
@@ -157,71 +174,178 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                 modifier = Modifier.fillMaxHeight(),
                 drawerContainerColor = MaterialTheme.colorScheme.surface
             ) {
-                Row(Modifier.fillMaxWidth().padding(start = 22.dp, end = 12.dp, top = 24.dp, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("CODEX", style = MaterialTheme.typography.titleLarge)
-                        Text("AI workspace", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().imePadding(),
+                    contentPadding = PaddingValues(bottom = 12.dp)
+                ) {
+                    item(key = "brand") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                tint = CodexPalette.Purple,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text("CODEX", style = MaterialTheme.typography.titleLarge)
+                                Text(
+                                    "AI workspace",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                }
-                NavigationDrawerItem(
-                    label = { Text("New conversation") }, selected = false,
-                    icon = { Icon(Icons.Outlined.Add, null) },
-                    onClick = { scope.launch { drawerState.close() }; if (!busy) sessionId = UUID.randomUUID().toString() },
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                OutlinedTextField(
-                    value = conversationSearch, onValueChange = { conversationSearch = it },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    placeholder = { Text("Search conversations") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                Text("WORKSPACE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 28.dp, top = 12.dp, bottom = 6.dp))
-                listOf(
-                    Triple("Conversations", Routes.SESSIONS, Icons.Outlined.ChatBubbleOutline),
-                    Triple("Automations", Routes.WORKFLOWS, Icons.Outlined.AccountTree),
-                    Triple("Projects", Routes.PROJECTS, Icons.Outlined.FolderOpen),
-                    Triple("Activity", Routes.BACKGROUND, Icons.Outlined.History)
-                ).forEach { (label, route, icon) ->
-                    NavigationDrawerItem(label = { Text(label) }, selected = false, icon = { Icon(icon, null) },
-                        onClick = { scope.launch { drawerState.close() }; onNavigate(route) }, modifier = Modifier.padding(horizontal = 12.dp))
-                }
-                val recent = sessions.filter { it.title.contains(conversationSearch, ignoreCase = true) }.take(8)
-                if (recent.isNotEmpty()) {
-                    Text("RECENT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 28.dp, top = 18.dp, bottom = 6.dp))
-                    recent.forEach { item ->
+                    item(key = "new-conversation") {
                         NavigationDrawerItem(
-                            label = { Text(item.title, maxLines = 1) }, selected = item.id == sessionId,
-                            icon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
-                            onClick = { scope.launch { drawerState.close() }; onOpenConversation(item.id) },
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            label = { Text("New conversation") },
+                            selected = false,
+                            icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                                if (!busy) sessionId = UUID.randomUUID().toString()
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurface,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    item(key = "conversation-search") {
+                        OutlinedTextField(
+                            value = conversationSearch,
+                            onValueChange = { conversationSearch = it },
+                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                            placeholder = { Text("Search conversations") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(22.dp)
+                        )
+                    }
+                    item(key = "workspace-heading") {
+                        Text(
+                            "WORKSPACE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 28.dp, top = 12.dp, bottom = 6.dp)
+                        )
+                    }
+                    items(
+                        listOf(
+                            Triple("Conversations", Routes.SESSIONS, Icons.Outlined.ChatBubbleOutline),
+                            Triple("Automations", Routes.WORKFLOWS, Icons.Outlined.AccountTree),
+                            Triple("Projects", Routes.PROJECTS, Icons.Outlined.FolderOpen),
+                            Triple("Activity", Routes.BACKGROUND, Icons.Outlined.History)
+                        ),
+                        key = { "workspace-${it.first}" }
+                    ) { (label, route, icon) ->
+                        NavigationDrawerItem(
+                            label = { Text(label) },
+                            selected = false,
+                            icon = { Icon(icon, contentDescription = null) },
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                                onNavigate(route)
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    item(key = "recent-heading") {
+                        Text(
+                            "RECENT",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 28.dp, top = 18.dp, bottom = 6.dp)
+                        )
+                    }
+                    if (recentSessions.isEmpty()) {
+                        item(key = "recent-empty") {
+                            Text(
+                                if (conversationSearch.isBlank()) "No conversations yet" else "No matching conversations",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 14.dp)
+                            )
+                        }
+                    } else {
+                        items(recentSessions, key = { "session-${it.id}" }) { item ->
+                            NavigationDrawerItem(
+                                label = { Text(item.title, maxLines = 1) },
+                                selected = item.id == sessionId,
+                                icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null) },
+                                onClick = {
+                                    scope.launch { drawerState.close() }
+                                    onOpenConversation(item.id)
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                colors = NavigationDrawerItemDefaults.colors(
+                                    selectedContainerColor = androidx.compose.ui.graphics.Color(0xFF4B455D),
+                                    selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                        }
+                    }
+                    item(key = "workspace-tools-heading") {
+                        Column {
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            Text(
+                                "WORKSPACE TOOLS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 28.dp, top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                    }
+                    items(
+                        listOf(
+                            Triple("Models", Routes.SETTINGS, Icons.Outlined.Tune),
+                            Triple("Integrations", Routes.MCP, Icons.Outlined.Extension),
+                            Triple("Memory", Routes.MEMORY, Icons.Outlined.Memory),
+                            Triple("Security Center", Routes.SECURITY, Icons.Outlined.Security),
+                            Triple("Settings", Routes.SETTINGS, Icons.Outlined.Settings)
+                        ),
+                        key = { "tool-${it.first}" }
+                    ) { (label, route, icon) ->
+                        NavigationDrawerItem(
+                            label = { Text(label) },
+                            selected = false,
+                            icon = { Icon(icon, contentDescription = null) },
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                                if (label == "Models") onSettings() else onNavigate(route)
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                unselectedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    item(key = "local-workspace") {
+                        ListItem(
+                            headlineContent = { Text("Local workspace") },
+                            supportingContent = { Text("No account required") },
+                            leadingContent = { Icon(Icons.Outlined.AccountCircle, contentDescription = null) },
+                            modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
                         )
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                Text("WORKSPACE TOOLS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 28.dp, top = 14.dp, bottom = 4.dp))
-                listOf(
-                    Triple("Models", Routes.SETTINGS, Icons.Outlined.Tune),
-                    Triple("Integrations", Routes.MCP, Icons.Outlined.Extension),
-                    Triple("Memory", Routes.MEMORY, Icons.Outlined.Memory),
-                    Triple("Settings", Routes.SETTINGS, Icons.Outlined.Settings)
-                ).forEach { (label, route, icon) ->
-                    NavigationDrawerItem(label = { Text(label) }, selected = false, icon = { Icon(icon, null) },
-                        onClick = { scope.launch { drawerState.close() }; if (label == "Models") onSettings() else onNavigate(route) },
-                        modifier = Modifier.padding(horizontal = 12.dp))
-                }
-                ListItem(
-                    headlineContent = { Text("Local workspace") },
-                    supportingContent = { Text("No account required") },
-                    leadingContent = { Icon(Icons.Outlined.AccountCircle, contentDescription = null) },
-                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
-                )
             }
         }
     ) {
@@ -373,6 +497,36 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
             CosmicBackdrop(Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(pendingApprovals, key = { "approval-${it.id}" }) { request ->
+                    var operationDetails by remember(request.id) { mutableStateOf("Loading exact operation…") }
+                    LaunchedEffect(request.id) { operationDetails = runtime.approvalDetails(request.id) }
+                    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Purple.copy(alpha = .7f)),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Permission request · ${request.riskLevel}", style = MaterialTheme.typography.titleSmall, color = CodexPalette.Purple)
+                                Text("Agent: ${request.agentId} · Tool: ${request.toolName}", style = MaterialTheme.typography.bodyMedium)
+                                Text("Action: ${request.action}\nResource: ${request.resourceScope}\nReason: ${request.reason}", style = MaterialTheme.typography.bodySmall)
+                                Text(operationDetails, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                                Text(if (request.decisionMode == "ALLOW_FOR_TASK") "Task approval remains limited to this exact action, resource, and saved arguments." else "Approval is limited to this recorded tool call and its exact arguments.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (request.status == "PENDING") {
+                                        TextButton(onClick = { runtime.resolveApproval(request.id, false) }) { Text("Deny") }
+                                        Spacer(Modifier.weight(1f))
+                                        if (request.toolName == "write_file") {
+                                            OutlinedButton(onClick = { runtime.resolveApproval(request.id, true, true) }) { Text("Allow for task") }
+                                        }
+                                        Button(onClick = { runtime.resolveApproval(request.id, true) }) { Text("Allow once") }
+                                    } else {
+                                        Text("Approved · not yet executed", style = MaterialTheme.typography.labelMedium)
+                                        Spacer(Modifier.weight(1f))
+                                        Button(onClick = { runtime.continueApprovedApproval(request.id) }) { Text("Continue") }
+                                    }
+                                }
+                                if (request.status in setOf("PENDING", "APPROVED")) TextButton(onClick = { runtime.cancelApproval(request.id) }) { Text("Cancel approval") }
+                            }
+                        }
+                }
                 if (messages.isEmpty() && streaming.isBlank()) item {
                     Column(Modifier.fillMaxWidth().padding(top = 54.dp, bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))

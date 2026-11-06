@@ -146,6 +146,32 @@ class ProviderAdaptersTest {
         assertTrue(events.any { it is com.cosmic.ai.domain.provider.ChatEvent.Finished })
     }
 
+    @Test fun openAiStreamingDoesNotTurnNullContentOrToolFragmentsIntoText() = runBlocking {
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("""
+            data: {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\"path\":\"src\"}"}}]},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"index":0,"id":null,"function":{"name":null,"arguments":null}}]},"finish_reason":null}]}
+
+            data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+        """.trimIndent()))
+        val events = OpenAiCompatibleProvider().streamChat(
+            config("/v1"), "key", ChatRequest("model", listOf(ChatMessage("user", "inspect")))
+        ).toList()
+        assertTrue("JSON null content must not become assistant text: $events", events.filterIsInstance<com.cosmic.ai.domain.provider.ChatEvent.Delta>().isEmpty())
+        val assembler = com.cosmic.ai.runtime.agent.ToolCallAssembler()
+        events.filterIsInstance<com.cosmic.ai.domain.provider.ChatEvent.ToolCallDelta>().forEach {
+            assembler.append(it.index, it.id, it.nameFragment, it.argumentsFragment)
+        }
+        val call = assembler.finish(listOf(com.cosmic.ai.domain.provider.ToolDefinition(
+            "read_file", "Read", """{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}"""
+        ))).single()
+        assertEquals("read_file", call.name)
+        assertEquals("src", org.json.JSONObject(call.arguments).getString("path"))
+    }
+
     @Test fun streamingHttp429IsReportedWithStatus() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(429).setHeader("Content-Type", "application/json").setBody("rate limited"))
         val events = OpenAiCompatibleProvider().streamChat(

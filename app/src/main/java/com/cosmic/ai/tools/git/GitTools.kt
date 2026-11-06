@@ -13,7 +13,7 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-class GitStatusTool(private val context: Context) : Tool {
+internal class GitStatusTool(private val context: Context) : Tool {
     override val definition = ToolDefinition(
         name = "git_status",
         description = "Run git status in the app working directory (or project if mapped). Returns porcelain status.",
@@ -33,8 +33,10 @@ class GitStatusTool(private val context: Context) : Tool {
             val code = p.waitFor()
             if (code != 0 && out.contains("not a git repository")) {
                 ToolResult.Failure("Not a git repository in app files dir. Clone or init first.")
-            } else {
+            } else if (code == 0) {
                 ToolResult.Success("exit=$code\n$out")
+            } else {
+                ToolResult.Failure("exit=$code\n$out")
             }
         } catch (e: Exception) {
             ToolResult.Failure(e.message ?: "git failed")
@@ -42,7 +44,7 @@ class GitStatusTool(private val context: Context) : Tool {
     }
 }
 
-class GitDiffTool(private val context: Context) : Tool {
+internal class GitDiffTool(private val context: Context) : Tool {
     override val definition = ToolDefinition(
         name = "git_diff",
         description = "Show git diff. Optional path argument.",
@@ -58,7 +60,11 @@ class GitDiffTool(private val context: Context) : Tool {
                 val p = ProcessBuilder(listOf("git") + args).directory(context.filesDir).redirectErrorStream(true).start()
                 val out = BufferedReader(InputStreamReader(p.inputStream)).readText()
                 val code = p.waitFor()
-                ToolResult.Success("exit=$code\n$out")
+                if (code == 0) {
+                    ToolResult.Success("exit=$code\n$out")
+                } else {
+                    ToolResult.Failure("exit=$code\n$out")
+                }
             } catch (e: Exception) {
                 ToolResult.Failure(e.message ?: "git diff failed")
             }
@@ -66,7 +72,7 @@ class GitDiffTool(private val context: Context) : Tool {
     }
 }
 
-class GitLogTool(private val context: Context) : Tool {
+internal class GitLogTool(private val context: Context) : Tool {
     override val definition = ToolDefinition(
         name = "git_log",
         description = "Show recent git commits (oneline, max 20).",
@@ -81,7 +87,12 @@ class GitLogTool(private val context: Context) : Tool {
                 val p = ProcessBuilder("git", "log", "--oneline", "-n", n.toString())
                     .directory(context.filesDir).redirectErrorStream(true).start()
                 val out = BufferedReader(InputStreamReader(p.inputStream)).readText()
-                ToolResult.Success(out.ifBlank { "(empty)" })
+                val code = p.waitFor()
+                if (code == 0) {
+                    ToolResult.Success(out.ifBlank { "(empty)" })
+                } else {
+                    ToolResult.Failure("exit=$code\n$out")
+                }
             } catch (e: Exception) {
                 ToolResult.Failure(e.message ?: "git log failed")
             }

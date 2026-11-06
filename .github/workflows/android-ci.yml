@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**', 'codex/build-stabilization']
   pull_request:
-    branches: [main]
+    branches: [main, 'codex/**', 'codex/build-stabilization']
   workflow_dispatch:
 
 permissions:
@@ -55,19 +55,40 @@ jobs:
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # gradle/actions v4
 
       - name: Verify wrapper runtime
-        run: ./gradlew --version
+        run: |
+          mkdir -p ci-logs
+          set -o pipefail
+          ./gradlew --version --console=plain 2>&1 | tee ci-logs/gradle-version.log
+
+      - name: Run KSP schema generation
+        run: |
+          set -o pipefail
+          ./gradlew :app:kspDebugKotlin --stacktrace --console=plain 2>&1 | tee ci-logs/ksp.log
 
       - name: Compile Kotlin
-        run: ./gradlew :app:compileDebugKotlin --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:compileDebugKotlin --stacktrace --console=plain 2>&1 | tee ci-logs/kotlin-compile.log
+
+      - name: Compile Android test sources
+        run: |
+          set -o pipefail
+          ./gradlew :app:compileDebugAndroidTestKotlin --stacktrace --console=plain 2>&1 | tee ci-logs/android-test-compile.log
 
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest --stacktrace --console=plain 2>&1 | tee ci-logs/unit-tests.log
 
       - name: Run Android lint
-        run: ./gradlew :app:lintDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:lintDebug --stacktrace --console=plain 2>&1 | tee ci-logs/lint.log
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --console=plain 2>&1 | tee ci-logs/debug-apk.log
 
       - name: Build parallel-install device verification APK
         run: ./gradlew :app:assembleDeviceTest --stacktrace
@@ -79,6 +100,28 @@ jobs:
           unzip -t "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           sha256sum "$APK" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Summarize test results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY' | tee ci-logs/test-summary.txt
+          import glob, xml.etree.ElementTree as ET
+          files = glob.glob('app/build/test-results/**/*.xml', recursive=True)
+          totals = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
+          for file in files:
+              try:
+                  root = ET.parse(file).getroot()
+              except (ET.ParseError, OSError):
+                  continue
+              suites = [root] if root.tag == 'testsuite' else list(root.iter('testsuite'))
+              for suite in suites:
+                  for key in totals:
+                      totals[key] += int(suite.attrib.get(key, 0))
+          print(f"JUnit XML files: {len(files)}")
+          for key, value in totals.items():
+              print(f"{key}: {value}")
+          PY
 
       - name: Upload debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -100,14 +143,40 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Upload build, test, and lint reports
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: cosmic-ai-verification-reports-${{ github.sha }}
+          name: cosmic-codex-test-reports-${{ github.sha }}
+          path: app/build/test-results/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmic-codex-lint-reports-${{ github.sha }}
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Gradle build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmic-codex-build-logs-${{ github.sha }}
+          path: ci-logs/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload build and Room schema reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmic-codex-build-reports-${{ github.sha }}
           path: |
             app/build/reports/**
-            app/build/test-results/**
             app/schemas/**
           if-no-files-found: warn
           retention-days: 14

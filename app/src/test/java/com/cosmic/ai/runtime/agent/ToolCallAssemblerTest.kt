@@ -19,6 +19,19 @@ class ToolCallAssemblerTest {
         assertEquals("{\"path\":\"a\"}", calls[0].arguments)
     }
 
+    @Test fun persistedAssistantToolCallMetadataIsRestoredForProviderHistory() {
+        val row = com.cosmic.ai.data.local.db.entity.MessageEntity(
+            id = "assistant-call", sessionId = "session", role = "assistant", content = "",
+            toolCallsJson = """[{"id":"call-7","name":"read_file","arguments":"{\"path\":\"src\"}"}]""",
+            createdAt = 1L
+        )
+        val restored = row.toProviderMessage()
+        assertEquals("assistant", restored.role)
+        assertEquals("call-7", restored.toolCalls?.single()?.id)
+        assertEquals("read_file", restored.toolCalls?.single()?.name)
+        assertEquals("src", org.json.JSONObject(restored.toolCalls!!.single().arguments).getString("path"))
+    }
+
     @Test fun rejectsTruncatedJsonWithoutProducingCallableTool() {
         val assembler = ToolCallAssembler()
         assembler.append(0, "call", "read_file", "{\"path\":\"")
