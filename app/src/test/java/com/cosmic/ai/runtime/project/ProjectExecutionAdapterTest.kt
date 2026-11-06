@@ -92,7 +92,7 @@ class ProjectExecutionAdapterTest {
         val context = RuntimeEnvironment.getApplication()
         val workspace = InternalProjectWorkspaceProvider.create(context, "test-exec-4")
         val mockProbe = object : AndroidRuntimeProbe() {
-            // override isAvailable to simulate missing tool
+            override fun isAvailable(executable: String): Boolean = false
         }
         val adapter = LocalProjectExecutionAdapter(context, mockProbe)
 

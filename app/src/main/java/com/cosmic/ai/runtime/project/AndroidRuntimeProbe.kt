@@ -9,10 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 
 /** Probes only fixed executable names in the Android app-visible PATH; it never installs or runs project commands. */
-class AndroidRuntimeProbe {
+open class AndroidRuntimeProbe {
     suspend fun availableExecutables(language: String): Set<String> = inspect(language, languageDetected = true).availableExecutables
 
-    suspend fun inspect(language: String, languageDetected: Boolean): RuntimeInspection = withContext(Dispatchers.IO) {
+    open suspend fun inspect(language: String, languageDetected: Boolean): RuntimeInspection = withContext(Dispatchers.IO) {
         if (language.equals("HTML", true) || language.equals("CSS", true) || language.equals("JavaScript", true)) {
             val webViewPackage = runCatching { WebView.getCurrentWebViewPackage() }.getOrNull()
             if (webViewPackage != null) {
@@ -45,7 +45,7 @@ class AndroidRuntimeProbe {
         )
     }
 
-    fun isAvailable(executable: String): Boolean = runFixed(executable, "command -v '$executable'") != null
+    open fun isAvailable(executable: String): Boolean = runFixed(executable, "command -v '$executable'") != null
 
     private fun versionOf(executable: String): String? {
         val output = runFixed(executable, "'$executable' --version") ?: return null
