@@ -34,7 +34,7 @@ class McpLaunchApprovalTest {
         databaseName?.let { RuntimeEnvironment.getApplication().deleteDatabase(it) }
     }
 
-    @Test fun stdioProcessDoesNotStartUntilPersistedApprovalIsClaimed() = runBlocking {
+    @Test fun stdioProcessDoesNotStartUntilPersistedApprovalIsClaimed(): Unit = runBlocking {
         val name = "mcp-launch-${UUID.randomUUID()}.db"
         databaseName = name
         val database = Room.databaseBuilder(RuntimeEnvironment.getApplication(), CosmicDatabase::class.java, name)
@@ -70,7 +70,7 @@ class McpLaunchApprovalTest {
         marker.delete()
     }
 
-    @Test fun deniedStdioLaunchNeverCreatesChildProcess() = runBlocking {
+    @Test fun deniedStdioLaunchNeverCreatesChildProcess(): Unit = runBlocking {
         val name = "mcp-denied-${UUID.randomUUID()}.db"
         databaseName = name
         val database = Room.databaseBuilder(RuntimeEnvironment.getApplication(), CosmicDatabase::class.java, name)

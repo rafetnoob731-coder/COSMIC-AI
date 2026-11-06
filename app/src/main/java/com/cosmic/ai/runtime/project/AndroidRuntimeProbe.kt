@@ -6,6 +6,7 @@ import com.cosmic.ai.core.project.RuntimeInspection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /** Probes only fixed executable names in the Android app-visible PATH; it never installs or runs project commands. */
@@ -56,7 +57,8 @@ open class AndroidRuntimeProbe {
     private fun runFixed(executable: String, command: String): String? {
         if (!executable.matches(Regex("[A-Za-z0-9_.+-]+"))) return null
         return try {
-            val process = ProcessBuilder("/system/bin/sh", "-c", command).redirectErrorStream(true).start()
+            val shell = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+            val process = ProcessBuilder(shell, "-c", command).redirectErrorStream(true).start()
             val output = ByteArrayOutputStream()
             val reader = Thread {
                 process.inputStream.use { input ->

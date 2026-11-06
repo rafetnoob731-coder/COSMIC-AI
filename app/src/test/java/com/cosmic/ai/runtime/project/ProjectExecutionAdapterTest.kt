@@ -97,7 +97,7 @@ class ProjectExecutionAdapterTest {
         val adapter = LocalProjectExecutionAdapter(context, mockProbe)
 
         val plan = ProjectBuildPlan("Cargo.toml", "", ProjectBuildPlan.Action.BUILD, listOf("nonexistent-tool-xyz-123", "build"), false, false)
-        val policy = PermissionPolicy(allowTerminal = true, allowNetwork = true)
+        val policy = PermissionPolicy(allowTerminal = true, allowNetwork = true, allowFileWrite = true)
 
         val report = adapter.execute(workspace, plan, policy)
         assertEquals(ExecutionStatus.RUNTIME_UNAVAILABLE, report.status)
@@ -111,7 +111,7 @@ class ProjectExecutionAdapterTest {
         val adapter = LocalProjectExecutionAdapter(context)
 
         val plan = ProjectBuildPlan("package.json", "../../escaped", ProjectBuildPlan.Action.BUILD, listOf("sh", "-c", "echo ok"), false, false)
-        val policy = PermissionPolicy(allowTerminal = true)
+        val policy = PermissionPolicy(allowTerminal = true, allowFileWrite = true)
 
         val report = adapter.execute(workspace, plan, policy)
         assertEquals(ExecutionStatus.PERMISSION_DENIED, report.status)
@@ -125,7 +125,7 @@ class ProjectExecutionAdapterTest {
         val adapter = LocalProjectExecutionAdapter(context)
 
         val plan = ProjectBuildPlan("build.sh", "", ProjectBuildPlan.Action.BUILD, listOf("sh", "-c", "printf 'hello project'"), false, false)
-        val policy = PermissionPolicy(allowTerminal = true)
+        val policy = PermissionPolicy(allowTerminal = true, allowFileWrite = true)
 
         val report = adapter.execute(workspace, plan, policy)
         assertEquals(ExecutionStatus.SUCCESS, report.status)

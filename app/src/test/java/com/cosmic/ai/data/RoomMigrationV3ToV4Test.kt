@@ -33,7 +33,14 @@ class RoomMigrationV3ToV4Test {
         val entities = schema.getJSONArray("entities")
         for (index in 0 until entities.length()) {
             val entity = entities.getJSONObject(index)
-            raw.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+            val tableName = entity.getString("tableName")
+            raw.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", tableName))
+            val indices = entity.optJSONArray("indices")
+            if (indices != null) {
+                for (j in 0 until indices.length()) {
+                    raw.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", tableName))
+                }
+            }
         }
         for (index in 0 until schema.getJSONArray("setupQueries").length()) {
             raw.execSQL(schema.getJSONArray("setupQueries").getString(index))

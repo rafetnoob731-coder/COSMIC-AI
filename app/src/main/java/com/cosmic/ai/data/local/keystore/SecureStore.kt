@@ -2,6 +2,7 @@
 package com.cosmic.ai.data.local.keystore
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -14,17 +15,21 @@ object SecretMasker {
 }
 
 class SecureStore(context: Context) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val prefs: SharedPreferences = try {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
 
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "cosmic_secure_store",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+        EncryptedSharedPreferences.create(
+            context,
+            "cosmic_secure_store",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    } catch (_: Throwable) {
+        context.getSharedPreferences("cosmic_secure_store_fallback", Context.MODE_PRIVATE)
+    }
 
     fun putSecret(alias: String, value: String) {
         prefs.edit().putString(alias, value).apply()

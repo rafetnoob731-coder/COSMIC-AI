@@ -77,6 +77,17 @@ class LocalProjectExecutionAdapter(
                     errorMessage = "Terminal/execution permission is disabled by active policy"
                 )
             }
+            if (plan.requiresApproval) {
+                return@withContext ProjectExecutionReport(
+                    plan = plan,
+                    status = ExecutionStatus.PERMISSION_DENIED,
+                    exitCode = null,
+                    stdout = "",
+                    stderr = "",
+                    durationMs = durationMs(),
+                    errorMessage = "This project operation requires explicit user approval"
+                )
+            }
             if (plan.requiresNetwork && !policy.allowNetwork) {
                 return@withContext ProjectExecutionReport(
                     plan = plan,
@@ -97,17 +108,6 @@ class LocalProjectExecutionAdapter(
                     stderr = "",
                     durationMs = durationMs(),
                     errorMessage = "File write permission is disabled by active policy"
-                )
-            }
-            if (plan.requiresApproval) {
-                return@withContext ProjectExecutionReport(
-                    plan = plan,
-                    status = ExecutionStatus.PERMISSION_DENIED,
-                    exitCode = null,
-                    stdout = "",
-                    stderr = "",
-                    durationMs = durationMs(),
-                    errorMessage = "This project operation requires explicit user approval"
                 )
             }
         }
