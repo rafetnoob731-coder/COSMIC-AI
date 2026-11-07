@@ -44,7 +44,7 @@ class McpLaunchApprovalTest {
         val gateway = PermissionGateway(SecurityPolicy(allowExecute = true, requireApprovalExecute = true))
         val manager = McpClientManager(gateway, null, approvals)
         val marker = File(RuntimeEnvironment.getApplication().cacheDir, "mcp-start-${UUID.randomUUID()}")
-        val fixture = "if [ ! -e '${marker.absolutePath}' ]; then touch '${marker.absolutePath}'; fi; while IFS= read -r line; do case \"\$line\" in *initialize*) printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"serverInfo\":{\"name\":\"fixture\",\"version\":\"1\"}}}';; *tools/list*) printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}';; esac; done"
+        val fixture = "if [ ! -e '${marker.absolutePath}' ]; then touch '${marker.absolutePath}'; fi; while IFS= read -r line; do case \"\$line\" in *\\\"method\\\":\\\"initialize\\\"*) printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"serverInfo\":{\"name\":\"fixture\",\"version\":\"1\"}}}';; *tools/list*) printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}';; esac; done"
         val config = McpServerConfig(
             id = "fixture-${UUID.randomUUID()}", name = "Approval fixture", transport = McpTransport.STDIO,
             command = "sh", args = listOf("-c", fixture)

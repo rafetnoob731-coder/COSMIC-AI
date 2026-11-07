@@ -343,11 +343,17 @@ internal class StdioMcpSession(private val config: McpServerConfig) : McpSession
                 while (true) {
                     val line = reader?.readLine() ?: break
                     if (line.isBlank()) continue
-                    val json = JSONObject(line)
-                    val id = json.optLong("id", -1)
-                    if (id >= 0) pending.remove(id)?.complete(json)
+                    try {
+                        val json = JSONObject(line)
+                        val id = json.optLong("id", -1)
+                        if (id >= 0) pending.remove(id)?.complete(json)
+                    } catch (_: Exception) { }
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+            } finally {
+                pending.values.forEach { it.completeExceptionally(java.io.IOException("MCP session closed")) }
+                pending.clear()
+            }
         }
         request(
             "initialize",
