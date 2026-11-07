@@ -45,13 +45,12 @@ class ToolRegistryBoundaryTest {
     }
 
 
-    @Test fun fileOperationsDoNotRequestApprovalUntilAProjectScopeExists() = runBlocking {
+    @Test fun fileOperationsWithoutProjectScopeRequestApprovalWhenWritePermissionNotGranted() = runBlocking {
         val registry = ToolRegistry(RuntimeEnvironment.getApplication(), PermissionGateway())
         val result = registry.execute("write_file", "{\"path\":\"site/index.html\",\"content\":\"x\"}",
             PermissionPolicy(allowFileWrite = false), null)
-        assertTrue(result is ToolResult.Failure)
-        val error = (result as ToolResult.Failure).error
-        assertTrue(error.contains("File write permission denied") || error.contains("Select a project folder"))
+        assertTrue("Direct file write without granted permission must request approval: $result",
+            result is ToolResult.NeedsApproval)
     }
 
     @Test fun directFileAccessWithoutProjectSucceedsWhenAuthorized() = runBlocking {
