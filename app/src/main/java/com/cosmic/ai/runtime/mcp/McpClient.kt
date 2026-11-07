@@ -365,10 +365,10 @@ internal class StdioMcpSession(private val config: McpServerConfig) : McpSession
         notify("notifications/initialized", JSONObject())
     }
 
-    override suspend fun listTools(): List<McpTool> {
+    override suspend fun listTools(): List<McpTool> = withContext(Dispatchers.IO) {
         val resp = request("tools/list", JSONObject())
-        val result = resp.optJSONObject("result") ?: return emptyList()
-        val arr = result.optJSONArray("tools") ?: return emptyList()
+        val result = resp.optJSONObject("result") ?: return@withContext emptyList()
+        val arr = result.optJSONArray("tools") ?: return@withContext emptyList()
         val out = mutableListOf<McpTool>()
         for (i in 0 until arr.length()) {
             val t = arr.getJSONObject(i)
@@ -381,7 +381,7 @@ internal class StdioMcpSession(private val config: McpServerConfig) : McpSession
                 )
             )
         }
-        return out
+        out
     }
 
     override suspend fun callTool(name: String, argumentsJson: String): Result<String> {
@@ -409,15 +409,13 @@ internal class StdioMcpSession(private val config: McpServerConfig) : McpSession
         }
     }
 
-    private suspend fun request(method: String, params: JSONObject): JSONObject {
+    private suspend fun request(method: String, params: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         val id = idGen.getAndIncrement()
         val msg = JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params)
         val deferred = CompletableDeferred<JSONObject>()
         pending[id] = deferred
-        withContext(Dispatchers.IO) {
-            writer?.apply { write(msg.toString()); newLine(); flush() }
-        }
-        return withTimeout(30_000) { deferred.await() }
+        writer?.apply { write(msg.toString()); newLine(); flush() }
+        withTimeout(30_000) { deferred.await() }
     }
 
     private fun notify(method: String, params: JSONObject) {
