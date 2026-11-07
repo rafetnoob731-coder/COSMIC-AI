@@ -49,7 +49,18 @@ class ToolRegistryBoundaryTest {
         val result = registry.execute("write_file", "{\"path\":\"site/index.html\",\"content\":\"x\"}",
             PermissionPolicy(allowFileWrite = false), null)
         assertTrue(result is ToolResult.Failure)
-        assertTrue((result as ToolResult.Failure).error.contains("Select a project folder"))
+        val error = (result as ToolResult.Failure).error
+        assertTrue(error.contains("File write permission denied") || error.contains("Select a project folder"))
+    }
+
+    @Test fun directFileAccessWithoutProjectSucceedsWhenAuthorized() = runBlocking {
+        val registry = ToolRegistry(RuntimeEnvironment.getApplication(), PermissionGateway())
+        val policy = PermissionPolicy(allowFileRead = true, allowFileWrite = true, requireApprovalForDestructive = false)
+        val writeResult = registry.execute("write_file", "{\"path\":\"hello.txt\",\"content\":\"world\"}", policy, null)
+        assertTrue("Direct write without project must succeed: $writeResult", writeResult is ToolResult.Success)
+        val readResult = registry.execute("read_file", "{\"path\":\"hello.txt\"}", policy, null)
+        assertTrue("Direct read without project must succeed: $readResult", readResult is ToolResult.Success)
+        assertEquals("world", (readResult as ToolResult.Success).output)
     }
 
     @Test fun destructiveTerminalCallAlwaysRequiresApprovalEvenIfOrdinaryExecutionIsAllowed() = runBlocking {

@@ -149,7 +149,7 @@ class SafProjectWorkspaceProvider(
     }
 }
 
-class InternalProjectWorkspaceProvider private constructor(
+class InternalProjectWorkspaceProvider internal constructor(
     rootDirectory: File,
     override val workspaceId: String
 ) : ProjectWorkspaceProvider {
@@ -221,6 +221,10 @@ class InternalProjectWorkspaceProvider private constructor(
     }
 
     companion object {
+        fun direct(rootDirectory: File, workspaceId: String = "direct"): InternalProjectWorkspaceProvider {
+            return InternalProjectWorkspaceProvider(rootDirectory, workspaceId)
+        }
+
         fun create(context: Context, workspaceId: String): InternalProjectWorkspaceProvider {
             val safeId = workspaceId.takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,80}")) && it != "." && it != ".." }
                 ?: throw IllegalArgumentException("Invalid workspace ID")

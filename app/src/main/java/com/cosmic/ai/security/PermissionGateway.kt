@@ -158,11 +158,16 @@ class PermissionGateway(
         return logAnd(level, action, auditDetail, decision)
     }
 
-    /** Validate relative path — reject traversal and absolute escapes. */
+    /** Validate relative or direct storage path — reject traversal and system escapes. */
     fun validateRelativePath(path: String): PermissionDecision {
-        val normalized = path.replace('\\', '/').trim()
+        var normalized = path.replace('\\', '/').trim()
         if (normalized.isEmpty()) return PermissionDecision.Deny("Empty path")
         if (normalized.contains('\u0000')) return PermissionDecision.Deny("Null byte in path blocked")
+        if (normalized.startsWith("/storage/emulated/0/")) {
+            normalized = normalized.removePrefix("/storage/emulated/0/").trimStart('/')
+        } else if (normalized.startsWith("/sdcard/")) {
+            normalized = normalized.removePrefix("/sdcard/").trimStart('/')
+        }
         if (normalized.startsWith("/")) return PermissionDecision.Deny("Absolute path not allowed")
         if (Regex("^[A-Za-z]:").containsMatchIn(normalized)) return PermissionDecision.Deny("Drive letter not allowed")
         if (normalized.contains("%2e", ignoreCase = true) || normalized.contains("%2f", ignoreCase = true)) {

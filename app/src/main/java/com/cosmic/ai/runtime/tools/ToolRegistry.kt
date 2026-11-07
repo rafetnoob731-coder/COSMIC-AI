@@ -42,8 +42,34 @@ internal interface Tool {
     suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult
 }
 
-private fun workspaceFor(context: Context, uri: Uri) =
-    com.cosmic.ai.runtime.project.SafProjectWorkspaceProvider(context, uri, uri.toString())
+private fun normalizeDirectPath(path: String): String {
+    var p = path.replace('\\', '/').trim()
+    if (p.startsWith("/storage/emulated/0/")) {
+        p = p.removePrefix("/storage/emulated/0/").trimStart('/')
+    } else if (p.startsWith("/sdcard/")) {
+        p = p.removePrefix("/sdcard/").trimStart('/')
+    }
+    return p
+}
+
+private fun workspaceFor(context: Context, projectUri: Uri?): com.cosmic.ai.runtime.project.ProjectWorkspaceProvider {
+    if (projectUri != null) {
+        return com.cosmic.ai.runtime.project.SafProjectWorkspaceProvider(context, projectUri, projectUri.toString())
+    }
+    val externalDir = android.os.Environment.getExternalStorageDirectory()
+    val canWriteExternal = try {
+        (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && android.os.Environment.isExternalStorageManager()) ||
+            (externalDir != null && externalDir.canWrite())
+    } catch (_: Throwable) {
+        false
+    }
+    val root = if (canWriteExternal && externalDir != null) {
+        externalDir
+    } else {
+        File(context.filesDir, "codex-workspaces/default").apply { mkdirs() }
+    }
+    return com.cosmic.ai.runtime.project.InternalProjectWorkspaceProvider.direct(root, "direct-workspace")
+}
 
 private fun com.cosmic.ai.runtime.project.WorkspaceResult.Failure.toToolFailure() = ToolResult.Failure(message)
 
@@ -58,9 +84,9 @@ internal class ListFilesTool(private val context: Context) : Tool {
 
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileRead) return ToolResult.Failure("File read permission denied")
-        val uri = projectUri ?: return ToolResult.Failure("No project open")
-        val path = runCatching { JSONObject(argsJson).optString("path", "") }.getOrElse { return ToolResult.Failure("Invalid directory path") }
-        return when (val result = workspaceFor(context, uri).list(path)) {
+        val rawPath = runCatching { JSONObject(argsJson).optString("path", "") }.getOrElse { return ToolResult.Failure("Invalid directory path") }
+        val path = normalizeDirectPath(rawPath)
+        return when (val result = workspaceFor(context, projectUri).list(path)) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> result.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> ToolResult.Success(
                 result.value.joinToString("\n") { entry ->
@@ -84,9 +110,9 @@ internal class ReadFileTool(private val context: Context) : Tool {
 
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileRead) return ToolResult.Failure("File read permission denied")
-        val uri = projectUri ?: return ToolResult.Failure("No project open")
-        val path = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid file path") }
-        return when (val result = workspaceFor(context, uri).read(path)) {
+        val rawPath = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid file path") }
+        val path = normalizeDirectPath(rawPath)
+        return when (val result = workspaceFor(context, projectUri).read(path)) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> result.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> ToolResult.Success(result.value.toString(Charsets.UTF_8))
         }
@@ -105,11 +131,11 @@ internal class WriteFileTool(private val context: Context) : Tool {
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileWrite) return ToolResult.Failure("File write permission denied")
         if (policy.requireApprovalForDestructive) return ToolResult.NeedsApproval("Write to project file", "write_file", argsJson)
-        val uri = projectUri ?: return ToolResult.Failure("No project open")
         val json = runCatching { JSONObject(argsJson) }.getOrElse { return ToolResult.Failure("Invalid file arguments") }
-        val path = json.opt("path") as? String ?: return ToolResult.Failure("A file path is required")
+        val rawPath = json.opt("path") as? String ?: return ToolResult.Failure("A file path is required")
+        val path = normalizeDirectPath(rawPath)
         val content = json.opt("content") as? String ?: return ToolResult.Failure("File content is required")
-        return when (val result = workspaceFor(context, uri).write(path, content.toByteArray(Charsets.UTF_8))) {
+        return when (val result = workspaceFor(context, projectUri).write(path, content.toByteArray(Charsets.UTF_8))) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> result.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> ToolResult.Success("Wrote ${content.toByteArray(Charsets.UTF_8).size} bytes to $path")
         }
@@ -127,10 +153,10 @@ internal class CreateDirectoryTool(private val context: Context) : Tool {
 
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileWrite) return ToolResult.Failure("Project write permission was not authorized")
-        val uri = projectUri ?: return ToolResult.Failure("No project folder is selected")
-        val path = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid directory path arguments") }
+        val rawPath = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid directory path arguments") }
+        val path = normalizeDirectPath(rawPath)
         if (path.isBlank() || path.trim('/') == ".") return ToolResult.Failure("Project root cannot be recreated")
-        return when (val result = workspaceFor(context, uri).createDirectory(path)) {
+        return when (val result = workspaceFor(context, projectUri).createDirectory(path)) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> result.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> ToolResult.Success("Created directory: $path")
         }
@@ -148,13 +174,13 @@ internal class EditFileTool(private val context: Context) : Tool {
 
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileWrite) return ToolResult.Failure("Project write permission was not authorized")
-        val uri = projectUri ?: return ToolResult.Failure("No project folder is selected")
         val json = runCatching { JSONObject(argsJson) }.getOrElse { return ToolResult.Failure("Invalid edit arguments") }
-        val path = json.opt("path") as? String ?: return ToolResult.Failure("A project file path is required")
+        val rawPath = json.opt("path") as? String ?: return ToolResult.Failure("A project file path is required")
+        val path = normalizeDirectPath(rawPath)
         val oldText = json.opt("old_text") as? String ?: return ToolResult.Failure("The exact text to replace is required")
         val newText = json.opt("new_text") as? String ?: return ToolResult.Failure("Replacement text is required")
         if (oldText.isEmpty()) return ToolResult.Failure("Refusing an empty-text edit")
-        val workspace = workspaceFor(context, uri)
+        val workspace = workspaceFor(context, projectUri)
         val source = when (val read = workspace.read(path)) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> return read.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> read.value.toString(Charsets.UTF_8)
@@ -182,9 +208,9 @@ internal class DeleteFileTool(private val context: Context) : Tool {
 
     override suspend fun execute(argsJson: String, policy: PermissionPolicy, projectUri: Uri?): ToolResult {
         if (!policy.allowFileWrite) return ToolResult.Failure("Project write permission was not authorized")
-        val uri = projectUri ?: return ToolResult.Failure("No project folder is selected")
-        val path = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid delete path arguments") }
-        return when (val result = workspaceFor(context, uri).deleteFile(path)) {
+        val rawPath = runCatching { JSONObject(argsJson).getString("path") }.getOrElse { return ToolResult.Failure("Invalid delete path arguments") }
+        val path = normalizeDirectPath(rawPath)
+        return when (val result = workspaceFor(context, projectUri).deleteFile(path)) {
             is com.cosmic.ai.runtime.project.WorkspaceResult.Failure -> result.toToolFailure()
             is com.cosmic.ai.runtime.project.WorkspaceResult.Success -> ToolResult.Success("Deleted file: $path")
         }
@@ -322,9 +348,6 @@ class ToolRegistry(context: Context, private val gateway: PermissionGateway = Pe
         validateArguments(tool.definition, argsJson)?.let { return ToolResult.Failure(it) }
         if (name == "run_command" && projectUri != null) {
             return ToolResult.Failure("Project-scoped command execution is unavailable for SAF workspaces; command was not run")
-        }
-        if (name in setOf("list_files", "read_file", "write_file", "edit_file", "create_directory", "delete_file") && projectUri == null) {
-            return ToolResult.Failure("Select a project folder before requesting this file operation")
         }
         val level = when (name) {
             "list_files", "read_file" -> PermissionLevel.READ
