@@ -5,6 +5,7 @@ import android.net.Uri
 import com.cosmic.ai.domain.agent.PermissionPolicy
 import com.cosmic.ai.security.PermissionGateway
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
