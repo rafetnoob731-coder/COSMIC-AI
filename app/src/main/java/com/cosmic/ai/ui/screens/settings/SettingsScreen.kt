@@ -41,6 +41,9 @@ import com.cosmic.ai.domain.provider.ProviderType
 import com.cosmic.ai.domain.provider.ProviderModel
 import com.cosmic.ai.runtime.providers.ProviderFactory
 import com.cosmic.ai.ui.theme.CosmicBackdrop
+import com.cosmic.ai.ui.theme.CodexPalette
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Bolt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -464,6 +467,7 @@ private fun PermissionsSection() {
     val terminal by preferences.allowTerminal.collectAsState(initial = false)
     val network by preferences.allowNetwork.collectAsState(initial = true)
     val approval by preferences.requireApproval.collectAsState(initial = true)
+    val autoApprove by preferences.autoApprove.collectAsState(initial = false)
 
     Column(
         modifier = Modifier
@@ -478,6 +482,40 @@ private fun PermissionsSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = if (autoApprove) CodexPalette.Purple.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (autoApprove) CodexPalette.Purple else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Outlined.Bolt,
+                            contentDescription = null,
+                            tint = if (autoApprove) CodexPalette.Cyan else CodexPalette.Purple,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Auto-Approval Mode", style = MaterialTheme.typography.titleSmall)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Automatically authorize file writes and terminal commands without confirmation prompts.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = autoApprove,
+                    onCheckedChange = { value -> scope.launch { preferences.setPermission("auto_approve", value) } }
+                )
+            }
+        }
         PermRow("File read", fileRead) { value -> scope.launch { preferences.setPermission("file_read", value) } }
         PermRow("File write", fileWrite) { value -> scope.launch { preferences.setPermission("file_write", value) } }
         PermRow("Terminal", terminal) { value -> scope.launch { preferences.setPermission("terminal", value) } }

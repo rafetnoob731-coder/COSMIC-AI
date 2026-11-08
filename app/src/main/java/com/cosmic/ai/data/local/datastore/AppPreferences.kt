@@ -29,6 +29,7 @@ class AppPreferences(private val context: Context) {
         val ALLOW_TERMINAL = booleanPreferencesKey("allow_terminal")
         val ALLOW_NETWORK = booleanPreferencesKey("allow_network")
         val REQUIRE_APPROVAL = booleanPreferencesKey("require_approval")
+        val AUTO_APPROVE = booleanPreferencesKey("auto_approve")
     }
 
     val isFirstLaunch: Flow<Boolean> = context.dataStore.data.map { it[Keys.FIRST_LAUNCH] ?: true }
@@ -57,6 +58,7 @@ class AppPreferences(private val context: Context) {
     val allowTerminal: Flow<Boolean> = context.dataStore.data.map { it[Keys.ALLOW_TERMINAL] ?: false }
     val allowNetwork: Flow<Boolean> = context.dataStore.data.map { it[Keys.ALLOW_NETWORK] ?: true }
     val requireApproval: Flow<Boolean> = context.dataStore.data.map { it[Keys.REQUIRE_APPROVAL] ?: true }
+    val autoApprove: Flow<Boolean> = context.dataStore.data.map { it[Keys.AUTO_APPROVE] ?: false }
 
     suspend fun setPermission(key: String, value: Boolean) {
         context.dataStore.edit {
@@ -66,6 +68,7 @@ class AppPreferences(private val context: Context) {
                 "terminal" -> it[Keys.ALLOW_TERMINAL] = value
                 "network" -> it[Keys.ALLOW_NETWORK] = value
                 "approval" -> it[Keys.REQUIRE_APPROVAL] = value
+                "auto_approve" -> it[Keys.AUTO_APPROVE] = value
             }
         }
     }

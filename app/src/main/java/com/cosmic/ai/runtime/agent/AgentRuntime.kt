@@ -815,15 +815,20 @@ class AgentRuntime(
     private fun buildSystemPrompt(mode: AgentMode, hasProject: Boolean): String {
         val base = """
             You are COSMIC CODEX, a precise autonomous engineering assistant running on Android.
+            Use <thinking>...</thinking> tags to outline your thought process, architecture, and step-by-step reasoning before taking action.
             DuckDuckGo Instant Answers can provide topic summaries and related-topic citations, but it is not a full organic web search API. Use duckduckgo_instant_answer only when useful, cite returned URLs, and clearly state when it provides no result. Never invent search results.
             Prefer tools over speculation. Never invent file contents or command results.
             Keep responses concise and technical. When editing, prefer small targeted changes.
         """.trimIndent()
-        val project = if (hasProject) "A project folder is open. Use list_files / read_file / write_file / edit_file / create_directory as needed. delete_file always needs explicit approval." else "No project folder is selected. Request/select a permitted project folder before using project file tools; do not claim files were created."
+        val project = if (hasProject) {
+            "A project folder is open. Use list_files / read_file / write_file / edit_file / create_directory as needed. delete_file always needs explicit approval."
+        } else {
+            "Direct device storage workspace (/sdcard and internal storage) is open and accessible. You can use list_files / read_file / write_file / edit_file / create_directory directly on requested paths."
+        }
         val modeLine = when (mode) {
-            AgentMode.CHAT -> "Mode: chat only. Do not call tools."
-            AgentMode.PLAN -> "Mode: plan. Propose steps, do not execute write/terminal tools."
-            AgentMode.AGENT -> "Mode: agent. Use tools when needed. Stop when the user request is fully handled."
+            AgentMode.CHAT -> "Mode: chat only. Converse directly with the user. Do not call tools."
+            AgentMode.PLAN -> "Mode: plan. Outline clear, step-by-step implementation roadmaps and architecture decisions. Do not execute write or terminal tools."
+            AgentMode.AGENT -> "Mode: agent. Plan your steps and invoke tools when needed. Stop when the user request is fully handled."
         }
         return "$base\n$project\n$modeLine"
     }

@@ -58,5 +58,6 @@ data class PermissionPolicy(
     val allowTerminal: Boolean = false,
     val allowNetwork: Boolean = true,
     val requireApprovalForDestructive: Boolean = true,
-    val approvedCommands: Set<String> = emptySet()
+    val approvedCommands: Set<String> = emptySet(),
+    val autoApprove: Boolean = false
 )

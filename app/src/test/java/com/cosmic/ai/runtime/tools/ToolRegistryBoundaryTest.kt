@@ -63,6 +63,16 @@ class ToolRegistryBoundaryTest {
         assertEquals("world", (readResult as ToolResult.Success).output)
     }
 
+    @Test fun autoApproveExecutesWithoutPromptingForDestructiveOrWriteApproval() = runBlocking {
+        val registry = ToolRegistry(RuntimeEnvironment.getApplication(), PermissionGateway())
+        val policy = PermissionPolicy(allowFileRead = true, allowFileWrite = true, autoApprove = true)
+        val writeResult = registry.execute("write_file", "{\"path\":\"auto.txt\",\"content\":\"auto-approved\"}", policy, null)
+        assertTrue("Auto approval must succeed directly without NeedsApproval: $writeResult", writeResult is ToolResult.Success)
+        val readResult = registry.execute("read_file", "{\"path\":\"auto.txt\"}", policy, null)
+        assertTrue(readResult is ToolResult.Success)
+        assertEquals("auto-approved", (readResult as ToolResult.Success).output)
+    }
+
     @Test fun destructiveTerminalCallAlwaysRequiresApprovalEvenIfOrdinaryExecutionIsAllowed() = runBlocking {
         val registry = ToolRegistry(RuntimeEnvironment.getApplication(), PermissionGateway())
         val policy = PermissionPolicy(allowTerminal = true, requireApprovalForDestructive = false)

@@ -69,14 +69,22 @@ class CosmicApplication : Application(), Configuration.Provider {
                 appPreferences.allowFileWrite,
                 appPreferences.allowTerminal,
                 appPreferences.allowNetwork,
-                appPreferences.requireApproval
-            ) { read, write, terminal, network, approval ->
+                appPreferences.requireApproval,
+                appPreferences.autoApprove
+            ) { args: Array<Any> ->
+                val read = args[0] as Boolean
+                val write = args[1] as Boolean
+                val terminal = args[2] as Boolean
+                val network = args[3] as Boolean
+                val approval = args[4] as Boolean
+                val autoApprove = args[5] as Boolean
                 PermissionPolicy(
                     allowFileRead = read,
                     allowFileWrite = write,
                     allowTerminal = terminal,
                     allowNetwork = network,
-                    requireApprovalForDestructive = approval
+                    requireApprovalForDestructive = if (autoApprove) false else approval,
+                    autoApprove = autoApprove
                 )
             }.collect(agentRuntime::updatePolicy)
         }

@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -411,19 +412,48 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box {
                             TextButton(onClick = { modeMenu = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                val modeIcon = when (mode) {
+                                    AgentMode.AGENT -> Icons.Outlined.SmartToy
+                                    AgentMode.PLAN -> Icons.Outlined.AccountTree
+                                    AgentMode.CHAT -> Icons.Outlined.ChatBubbleOutline
+                                }
+                                Icon(modeIcon, null, modifier = Modifier.size(16.dp), tint = if (mode == AgentMode.PLAN) CodexPalette.Cyan else MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(6.dp))
                                 Text(mode.name.lowercase().replaceFirstChar(Char::uppercase))
                                 Icon(Icons.Outlined.ExpandMore, null, modifier = Modifier.size(18.dp))
                             }
                             DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
-                                AgentMode.entries.forEach { option -> DropdownMenuItem(
-                                    text = { Text(option.name.lowercase().replaceFirstChar(Char::uppercase)) },
-                                    onClick = { mode = option; modeMenu = false }) }
+                                AgentMode.entries.forEach { option ->
+                                    val icon = when (option) {
+                                        AgentMode.AGENT -> Icons.Outlined.SmartToy
+                                        AgentMode.PLAN -> Icons.Outlined.AccountTree
+                                        AgentMode.CHAT -> Icons.Outlined.ChatBubbleOutline
+                                    }
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp), tint = if (option == AgentMode.PLAN) CodexPalette.Cyan else MaterialTheme.colorScheme.primary) },
+                                        text = {
+                                            Column {
+                                                Text(option.name.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodyMedium)
+                                                Text(
+                                                    when (option) {
+                                                        AgentMode.AGENT -> "Autonomous tool execution"
+                                                        AgentMode.PLAN -> "Planning & architecture roadmap"
+                                                        AgentMode.CHAT -> "Direct conversation without tools"
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        onClick = { mode = option; modeMenu = false }
+                                    )
+                                }
                             }
                         }
                         Text(selectedProvider?.defaultModel ?: "No model", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.weight(1f))
-                        if (busy) TextButton(onClick = { runtime.cancel() }) { Text("Stop") }
+                        if (busy) TextButton(onClick = { runtime.cancel() }) { Text("Stop", color = MaterialTheme.colorScheme.error) }
                     }
                     Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp), tonalElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth()) {
@@ -497,6 +527,26 @@ fun AgentScreen(onNavigate: (String) -> Unit, onSettings: () -> Unit, initialSes
             CosmicBackdrop(Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (mode == AgentMode.PLAN) item(key = "plan_mode_banner") {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = CodexPalette.Cyan.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Cyan.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.AccountTree, contentDescription = null, tint = CodexPalette.Cyan, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Plan Mode Active", style = MaterialTheme.typography.labelMedium, color = CodexPalette.Cyan)
+                                Text("Architecture & roadmap planning. CODEX will formulate steps without running tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
                 items(pendingApprovals, key = { "approval-${it.id}" }) { request ->
                     var operationDetails by remember(request.id) { mutableStateOf("Loading exact operation…") }
                     LaunchedEffect(request.id) { operationDetails = runtime.approvalDetails(request.id) }
@@ -576,46 +626,237 @@ private fun ProviderEntity.toProviderConfig(): ProviderConfig? = runCatching {
     ProviderConfig(id, name, ProviderType.valueOf(type), baseUrl, apiKeyAlias, defaultModel)
 }.getOrNull()
 
+private data class ParsedMessageContent(
+    val thinking: String?,
+    val isThinkingOpen: Boolean,
+    val mainContent: String
+)
+
+private fun parseThinkingAndContent(raw: String): ParsedMessageContent {
+    val thinkingRegex = Regex("""(?s)<(?:thinking|thought)>(.*?)</(?:thinking|thought)>""")
+    val match = thinkingRegex.find(raw)
+    if (match != null) {
+        val thinkingText = match.groupValues[1].trim()
+        val rest = raw.removeRange(match.range).trim()
+        return ParsedMessageContent(thinkingText, isThinkingOpen = false, rest)
+    }
+    val openTagMatch = Regex("""(?s)<(?:thinking|thought)>(.*)""").find(raw)
+    if (openTagMatch != null) {
+        val inProgressThinking = openTagMatch.groupValues[1].trim()
+        return ParsedMessageContent(inProgressThinking, isThinkingOpen = true, "")
+    }
+    return ParsedMessageContent(null, isThinkingOpen = false, raw)
+}
+
+@Composable
+private fun ClaudeThinkingCard(
+    thinking: String,
+    isOpen: Boolean = false,
+    defaultExpanded: Boolean = false
+) {
+    var expanded by remember(thinking) { mutableStateOf(defaultExpanded || isOpen) }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = CodexPalette.PanelRaised.copy(alpha = 0.9f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Purple.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).animateContentSize()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 2.dp)
+            ) {
+                Icon(
+                    Icons.Outlined.Psychology,
+                    contentDescription = null,
+                    tint = CodexPalette.Cyan,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isOpen) "Thinking…" else "Thought Process",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = CodexPalette.Cyan,
+                    modifier = Modifier.weight(1f)
+                )
+                if (isOpen) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = CodexPalette.Cyan
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Icon(
+                    if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            if (expanded && thinking.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = CodexPalette.Line.copy(alpha = 0.4f))
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = thinking,
+                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClaudeToolCard(content: String) {
+    val clipboard = LocalClipboardManager.current
+    var expanded by remember { mutableStateOf(true) }
+    val isCommand = content.contains("exit=") || content.contains("stdout:") || content.contains("stderr:")
+    val isSuccess = if (isCommand) content.contains("exit=0") else !content.startsWith("Error") && !content.contains("failed")
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = androidx.compose.ui.graphics.Color(0xFF0D1017),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isSuccess) CodexPalette.Green.copy(alpha = 0.45f) else MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
+        ),
+        modifier = Modifier.fillMaxWidth().animateContentSize()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    if (isCommand) Icons.Outlined.Terminal else Icons.Outlined.Code,
+                    contentDescription = null,
+                    tint = if (isSuccess) CodexPalette.Green else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isCommand) "Terminal execution" else "Tool execution",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSuccess) CodexPalette.Green.copy(alpha = 0.15f) else MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = if (isSuccess) (if (isCommand) "Exit 0" else "Success") else "Error",
+                        color = if (isSuccess) CodexPalette.Green else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                IconButton(onClick = { clipboard.setText(AnnotatedString(content)) }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy output", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
+                    Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = androidx.compose.ui.graphics.Color(0xFF080A0F),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = content.trim(),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = androidx.compose.ui.graphics.Color(0xFFC9D1D9),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun MessageBubble(msg: ChatMessage) {
+    if (msg.role == "tool") {
+        ClaudeToolCard(msg.content)
+        return
+    }
+
     val clipboard = LocalClipboardManager.current
-    val parts = remember(msg.content) { msg.content.split("```") }
     val isUser = msg.role == "user"
-    val bg = if (isUser) CodexPalette.Violet.copy(alpha = .76f) else MaterialTheme.colorScheme.surface.copy(alpha = .72f)
+    val parsed = remember(msg.content) { parseThinkingAndContent(msg.content) }
+    val displayContent = if (isUser) msg.content else parsed.mainContent
+    val parts = remember(displayContent) { displayContent.split("```") }
+    val bg = if (isUser) CodexPalette.Violet.copy(alpha = .82f) else MaterialTheme.colorScheme.surface.copy(alpha = .78f)
     val fg = MaterialTheme.colorScheme.onSurface
+
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
-        Surface(color = bg, shape = RoundedCornerShape(if (isUser) 18.dp else 12.dp), modifier = Modifier.widthIn(max = 720.dp), border = if (isUser) null else androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Line.copy(alpha = .7f))) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
-                if (!isUser) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (msg.role == "tool") "TOOL RESULT" else "CODEX", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).padding(bottom = 5.dp))
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(msg.content)) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy response", modifier = Modifier.size(16.dp))
-                    }
-                }
-                parts.forEachIndexed { index, segment ->
-                    if (index % 2 == 1) {
-                        var expanded by remember(msg.content, index) { mutableStateOf(false) }
-                        val code = segment.substringAfter('\n', segment)
-                        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().animateContentSize(tween(180))) {
-                            Column(Modifier.padding(10.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(segment.substringBefore('\n').takeIf { it.isNotBlank() } ?: "Code", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                                        Text(if (expanded) "Collapse" else "Expand", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code", modifier = Modifier.size(15.dp))
-                                    }
-                                }
-                                Text(code, maxLines = if (expanded) Int.MAX_VALUE else 12, color = fg, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        Column(modifier = Modifier.widthIn(max = 720.dp)) {
+            if (!isUser && parsed.thinking != null) {
+                ClaudeThinkingCard(
+                    thinking = parsed.thinking,
+                    isOpen = parsed.isThinkingOpen
+                )
+            }
+            if (displayContent.isNotBlank() || isUser) {
+                Surface(
+                    color = bg,
+                    shape = RoundedCornerShape(if (isUser) 18.dp else 14.dp),
+                    border = if (isUser) null else androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Line.copy(alpha = .7f))
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+                        if (!isUser) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("CODEX", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).padding(bottom = 5.dp))
+                            IconButton(onClick = { clipboard.setText(AnnotatedString(displayContent)) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy response", modifier = Modifier.size(16.dp))
                             }
                         }
-                    } else if (segment.isNotBlank()) {
-                        Text(segment.trim(), color = fg, style = MaterialTheme.typography.bodyLarge)
+                        parts.forEachIndexed { index, segment ->
+                            if (index % 2 == 1) {
+                                var expanded by remember(displayContent, index) { mutableStateOf(false) }
+                                val code = segment.substringAfter('\n', segment)
+                                Surface(
+                                    color = androidx.compose.ui.graphics.Color(0xFF0D1017),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CodexPalette.Line.copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth().animateContentSize(tween(180))
+                                ) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                segment.substringBefore('\n').takeIf { it.isNotBlank() } ?: "Code",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = CodexPalette.Cyan,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                                Text(if (expanded) "Collapse" else "Expand", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }, modifier = Modifier.size(28.dp)) {
+                                                Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code", modifier = Modifier.size(15.dp))
+                                            }
+                                        }
+                                        Text(code, maxLines = if (expanded) Int.MAX_VALUE else 14, color = fg, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            } else if (segment.isNotBlank()) {
+                                Text(segment.trim(), color = fg, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            if (index < parts.lastIndex) Spacer(Modifier.height(8.dp))
+                        }
                     }
-                    if (index < parts.lastIndex) Spacer(Modifier.height(8.dp))
                 }
             }
         }

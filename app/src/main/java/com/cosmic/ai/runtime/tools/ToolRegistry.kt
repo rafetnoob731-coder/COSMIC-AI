@@ -382,9 +382,9 @@ class ToolRegistry(context: Context, private val gateway: PermissionGateway = Pe
             allowAdmin = false,
             allowNetwork = true,
             requireApprovalRead = !policy.allowFileRead,
-            requireApprovalWrite = policy.requireApprovalForDestructive || !policy.allowFileWrite,
+            requireApprovalWrite = if (policy.autoApprove) false else (policy.requireApprovalForDestructive || !policy.allowFileWrite),
             // The tool's command classifier adds destructive approval after this category gate.
-            requireApprovalExecute = !policy.allowTerminal,
+            requireApprovalExecute = if (policy.autoApprove) false else !policy.allowTerminal,
             requireApprovalAdmin = true,
             requireApprovalNetwork = !policy.allowNetwork
         )
@@ -398,7 +398,10 @@ class ToolRegistry(context: Context, private val gateway: PermissionGateway = Pe
             is PermissionDecision.NeedsApproval -> return ToolResult.NeedsApproval(decision.reason, name, argsJson)
         }
         onAuthorized()
-        val executionPolicy = if (approval == null) policy else policy.copy(
+        val executionPolicy = if (policy.autoApprove) policy.copy(
+            allowFileRead = true, allowFileWrite = true, allowTerminal = true, allowNetwork = true,
+            requireApprovalForDestructive = false
+        ) else if (approval == null) policy else policy.copy(
             allowFileRead = true, allowFileWrite = true, allowTerminal = true, allowNetwork = true,
             requireApprovalForDestructive = false
         )
